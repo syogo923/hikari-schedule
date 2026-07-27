@@ -1,4 +1,4 @@
-const CACHE_NAME = "hikari-schedule-v1";
+const CACHE_NAME = "hikari-portal-v1-1";
 const STATIC_FILES = ["/", "/index.html", "/style.css", "/app.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

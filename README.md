@@ -1,53 +1,19 @@
-# 光スケジュール 完成版 v1.0
+# 光ポータル Ver1.1
 
-Netlify + Netlify Functions + Netlify Blobsで動作する、社内共有用の簡易スケジュールです。
+光スケジュール Ver1.0を基に、社内用ポータルへ拡張した版です。
 
-## 機能
+## 追加機能
+- ホーム／予定表／納期管理の画面切替
+- 納期案件の登録・編集・削除
+- 本日納期、期限超過、7日以内、完了済みの集計
+- 完了／未完了のワンタッチ切替
+- 優先度、得意先、メモの登録
+- 従来の社長予定表とPWA機能を維持
 
-- 今日の予定表示
-- 月間カレンダー
-- 日付を選んで予定登録
-- 予定の編集・削除
-- 予定がある日の印
-- 今後7日間の表示
-- Windows / Mac / スマートフォン対応
-- PWA対応
-- 1分ごとの自動更新
+## GitHub / Netlify
+展開後の中身をGitHubリポジトリ直下へアップロードしてください。Netlify設定は `netlify.toml` が自動認識します。
 
-## GitHubの正しい配置
+- Publish directory: `public`
+- Functions directory: `netlify/functions`
 
-GitHubリポジトリの一番上が、次の状態になるようにしてください。
-
-```text
-hikari-schedule/
-├─ netlify/
-│  └─ functions/
-│     └─ schedules.mjs
-├─ public/
-│  ├─ index.html
-│  ├─ app.js
-│  ├─ style.css
-│  ├─ sw.js
-│  ├─ manifest.webmanifest
-│  └─ icons/
-├─ netlify.toml
-├─ package.json
-└─ README.md
-```
-
-`hikari-schedule-complete`というフォルダごと入れず、展開したフォルダの中身を全部選択してアップロードしてください。
-
-## Netlify設定
-
-GitHubリポジトリを選択してDeployします。通常は `netlify.toml` が自動認識されます。
-
-手入力画面が出た場合：
-
-- Base directory：空欄
-- Build command：空欄
-- Publish directory：`public`
-- Functions directory：`netlify/functions`
-
-## 注意
-
-ログイン機能はありません。URLを知っている人は登録・編集・削除できます。公開サイトにはリンクせず、社内だけでURLを共有してください。
+既存の予定データは従来の `hikari-schedule / events-v1` を使用するため、そのまま維持されます。納期データは別領域に保存されます。
