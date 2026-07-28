@@ -27,19 +27,32 @@ function renderDeadlines(){
     (a,b)=>Number(a.completed)-Number(b.completed)||a.dueDate.localeCompare(b.dueDate)
   );
 
-  const toolbar=`
-    <div class="deadline-selection-toolbar">
-      <button type="button" id="selectVisible" class="secondary">
-        表示中をすべて選択
-      </button>
-      <button type="button" id="clearProjectSelection" class="secondary">
-        選択をすべて解除
-      </button>
-      <strong id="selectedProjectCount">
-        ${S.selectedProjectIds.size}件選択中
-      </strong>
-    </div>
-  `;
+const selectedCount=S.selectedProjectIds.size;
+
+const toolbar=`
+  <div class="deadline-selection-toolbar">
+    <button type="button" id="selectVisible" class="secondary">
+      表示中をすべて選択
+    </button>
+
+    <button type="button" id="clearProjectSelection" class="secondary">
+      選択をすべて解除
+    </button>
+
+    <strong id="selectedProjectCount">
+      ${selectedCount}件選択中
+    </strong>
+
+    <button
+      type="button"
+      id="bulkDeleteProjects"
+      class="danger"
+      ${selectedCount===0?'disabled':''}
+    >
+      選択した${selectedCount}件を削除
+    </button>
+  </div>
+`;
 
   const items=list.length
     ?list.map(p=>`
@@ -96,6 +109,67 @@ $('importRows').onchange=updateImportCount;
 $('importForm').onsubmit=async e=>{e.preventDefault();if($('importStep2').hidden)return;const shipNo=normalizeShipNo($('importShipNo').value),displayName=$('importDisplayName').value.trim(),client=$('importClient').value.trim();const rows=[...document.querySelectorAll('[data-import-row]')].filter(r=>r.querySelector('.import-select').checked);const projects=rows.map(r=>({shipNo,displayName,client,productName:r.querySelector('.import-product').value.trim(),quantity:Number(r.querySelector('.import-quantity').value)||0,spec:r.querySelector('.import-spec').value.trim(),notes:'',employeeId:r.querySelector('.import-employee').value,dueDate:r.querySelector('.import-date').value}));if(!projects.length){$('importError').textContent='登録する明細を選択してください。';return}if(!displayName||projects.some(x=>!x.productName||!x.employeeId||!x.dueDate)){$('importError').textContent='表示名・製品名・担当者・納期を確認してください。';return}$('importError').textContent='';try{await api(API.projects,{method:'POST',body:{projects}});$('importDialog').close();await load();toast(`${projects.length}件を登録しました`)}catch(x){$('importError').textContent=x.message}};
 document.body.onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view){document.querySelectorAll('.nav,.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.view+'View').classList.add('active')}if(b.id==='addProject'||b.dataset.add!==undefined)openProject();if(b.id==='importExcel')openImport();if(b.dataset.close!==undefined)b.closest('dialog').close();if(b.dataset.edit)openProject(b.dataset.edit);if(b.dataset.detail)openDetail(b.dataset.detail);if(b.dataset.detailEdit){$('detailDialog').close();openProject(b.dataset.detailEdit)}if(b.dataset.requestDelete)requestDelete(b.dataset.requestDelete);if(b.id==='confirmDelete')await confirmDelete();if(b.dataset.toggle){await api(API.projects,{method:'PUT',body:{id:b.dataset.toggle,action:'toggle'}});load()}if(b.dataset.delete)requestDelete(b.dataset.delete);if(b.dataset.medit){const item=S.masters[b.dataset.type].find(x=>x.id===b.dataset.medit),newName=prompt('新しい名称を入力してください。',item?.name||'');if(newName!==null&&newName.trim()){await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.medit,name:newName}});load()}}if(b.dataset.mtoggle){const item=S.masters[b.dataset.type].find(x=>x.id===b.dataset.mtoggle);await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.mtoggle,active:item?.active===false}});load()}if(b.dataset.move){await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.id,action:'move',direction:b.dataset.move}});load()}if(b.dataset.mdelete&&confirm('この項目を削除しますか？')){await api(`${API.masters}?id=${encodeURIComponent(b.dataset.mdelete)}`,{method:'DELETE',body:{type:b.dataset.type}});load()}};
 document.body.onsubmit=async e=>{const f=e.target.closest('[data-master]');if(!f)return;e.preventDefault();const input=f.querySelector('input');try{await api(API.masters,{method:'POST',body:{type:f.dataset.master,name:input.value}});input.value='';load()}catch(x){toast(x.message)}};
+function updateProjectSelectionDisplay(){
+  const count=S.selectedProjectIds.size;
+  const countLabel=$('selectedProjectCount');
+  const deleteButton=$('bulkDeleteProjects');
+
+  if(countLabel){
+    countLabel.textContent=`${count}件選択中`;
+  }
+
+  if(deleteButton){
+    deleteButton.textContent=`選択した${count}件を削除`;
+    deleteButton.disabled=count===0;
+  }
+}
+
+async function bulkDeleteSelectedProjects(){
+  const ids=[...S.selectedProjectIds];
+  const count=ids.length;
+
+  if(count===0){
+    toast('削除する案件を選択してください。');
+    return;
+  }
+
+  const confirmed=confirm(
+    `${count}件の案件を削除します。\n\nこの操作は元に戻せません。\n本当に削除しますか？`
+  );
+
+  if(!confirmed)return;
+
+  const deleteButton=$('bulkDeleteProjects');
+
+  if(deleteButton){
+    deleteButton.disabled=true;
+    deleteButton.textContent='削除しています…';
+  }
+
+  let deletedCount=0;
+  let failedCount=0;
+
+  for(const id of ids){
+    try{
+      await api(
+        `${API.projects}?id=${encodeURIComponent(id)}`,
+        {method:'DELETE'}
+      );
+      deletedCount++;
+    }catch(e){
+      failedCount++;
+    }
+  }
+
+  S.selectedProjectIds.clear();
+  await load();
+
+  if(failedCount===0){
+    toast(`${deletedCount}件の案件を削除しました。`);
+  }else{
+    toast(`${deletedCount}件削除、${failedCount}件失敗しました。`);
+  }
+}
 document.body.addEventListener('change',e=>{
   const checkbox=e.target.closest('[data-select-project]');
   if(!checkbox)return;
@@ -108,13 +182,10 @@ document.body.addEventListener('change',e=>{
     S.selectedProjectIds.delete(id);
   }
 
-  const count=$('selectedProjectCount');
-  if(count){
-    count.textContent=`${S.selectedProjectIds.size}件選択中`;
-  }
+  updateProjectSelectionDisplay();
 });
 
-document.body.addEventListener('click',e=>{
+document.body.addEventListener('click',async e=>{
   const button=e.target.closest('button');
   if(!button)return;
 
@@ -126,9 +197,13 @@ document.body.addEventListener('click',e=>{
   }
 
   if(button.id==='clearProjectSelection'){
-    S.selectedProjectIds.clear();
-    renderDeadlines();
-  }
+  S.selectedProjectIds.clear();
+  renderDeadlines();
+}
+
+if(button.id==='bulkDeleteProjects'){
+  await bulkDeleteSelectedProjects();
+}
 });
 $('refresh').onclick=load;$('search').oninput=e=>{S.q=e.target.value;renderSchedule();renderDeadlines()};$('prev').onclick=()=>{S.month=new Date(S.month.getFullYear(),S.month.getMonth()-1,1);renderSchedule()};$('next').onclick=()=>{S.month=new Date(S.month.getFullYear(),S.month.getMonth()+1,1);renderSchedule()};
 if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));load();
