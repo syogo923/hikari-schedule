@@ -22,7 +22,59 @@ function render(){renderSchedule();renderDeadlines();renderMasters();fillSelects
 function filtered(){const q=S.q.trim().toLowerCase();return S.projects.filter(p=>!q||[p.shipNo,p.displayName,p.productName,p.client,p.spec,p.notes,name('employees',p.employeeId)].join(' ').toLowerCase().includes(q))}
 function card(p){return `<button class="job ${p.completed?'done':''}" data-detail="${p.id}"><b>${esc(p.shipNo||'—')}</b><span>${esc(p.displayName)}</span><small>${esc(p.productName)}</small></button>`}
 function renderSchedule(){const y=S.month.getFullYear(),m=S.month.getMonth();$('month').textContent=`${y}年${m+1}月`;$('emptyEmployees').textContent=S.masters.employees.length?'':'社員マスタを登録すると、職員別スケジュールが表示されます。';const days=new Date(y,m+1,0).getDate(),emps=ordered('employees').filter(x=>x.active!==false);let h='<thead><tr><th class="date-col">日付</th>'+emps.map(e=>`<th>${esc(e.name)}</th>`).join('')+'</tr></thead><tbody>';for(let d=1;d<=days;d++){const date=fd(new Date(y,m,d));h+=`<tr><th>${esc(jp(date))}</th>`+emps.map(e=>`<td>${filtered().filter(p=>p.dueDate===date&&p.employeeId===e.id).map(card).join('')}</td>`).join('')+'</tr>'}h+='</tbody>';$('scheduleTable').innerHTML=h}
-function renderDeadlines(){const list=filtered().slice().sort((a,b)=>Number(a.completed)-Number(b.completed)||a.dueDate.localeCompare(b.dueDate));$('deadlineList').innerHTML=list.length?list.map(p=>`<article class="deadline ${p.completed?'done':''}"><button data-toggle="${p.id}" class="check">${p.completed?'✓':''}</button><div><time>${esc(jp(p.dueDate))}</time><h3>${esc(p.shipNo)} ${esc(p.displayName)}</h3><p>${esc(p.productName)}${p.quantity?' × '+esc(p.quantity):''} ／ ${esc(name('employees',p.employeeId))}${p.client?' ／ '+esc(p.client):''}</p></div><button data-edit="${p.id}">編集</button><button data-delete="${p.id}">削除</button></article>`).join(''):'<div class="notice">案件はありません。</div>'}
+function renderDeadlines(){
+  const list=filtered().slice().sort(
+    (a,b)=>Number(a.completed)-Number(b.completed)||a.dueDate.localeCompare(b.dueDate)
+  );
+
+  const toolbar=`
+    <div class="deadline-selection-toolbar">
+      <button type="button" id="selectVisible" class="secondary">
+        表示中をすべて選択
+      </button>
+      <button type="button" id="clearProjectSelection" class="secondary">
+        選択をすべて解除
+      </button>
+      <strong id="selectedProjectCount">
+        ${S.selectedProjectIds.size}件選択中
+      </strong>
+    </div>
+  `;
+
+  const items=list.length
+    ?list.map(p=>`
+      <article class="deadline ${p.completed?'done':''}">
+        <input
+          type="checkbox"
+          class="project-select"
+          data-select-project="${p.id}"
+          ${S.selectedProjectIds.has(p.id)?'checked':''}
+          aria-label="${esc(p.shipNo)}を選択"
+        >
+
+        <button data-toggle="${p.id}" class="check">
+          ${p.completed?'✓':''}
+        </button>
+
+        <div>
+          <time>${esc(jp(p.dueDate))}</time>
+          <h3>${esc(p.shipNo)} ${esc(p.displayName)}</h3>
+          <p>
+            ${esc(p.productName)}
+            ${p.quantity?' × '+esc(p.quantity):''}
+            ／ ${esc(name('employees',p.employeeId))}
+            ${p.client?' ／ '+esc(p.client):''}
+          </p>
+        </div>
+
+        <button data-edit="${p.id}">編集</button>
+        <button data-delete="${p.id}">削除</button>
+      </article>
+    `).join('')
+    :'<div class="notice">案件はありません。</div>';
+
+  $('deadlineList').innerHTML=toolbar+items;
+}
 const labels={employees:'社員',clients:'得意先',displayNames:'表示名',products:'製品'};
 function renderMasters(){$('masterGrid').innerHTML=Object.keys(labels).map(t=>`<section class="master-card"><h3>${labels[t]}マスタ</h3><form data-master="${t}"><input placeholder="${labels[t]}名"><button class="primary">追加</button></form><div>${ordered(t).map((x,i,a)=>`<div class="master-item ${x.active===false?'inactive':''}"><span>${esc(x.name)}</span><div class="master-actions"><button data-move="up" data-id="${x.id}" data-type="${t}" ${i===0?'disabled':''}>↑</button><button data-move="down" data-id="${x.id}" data-type="${t}" ${i===a.length-1?'disabled':''}>↓</button><button data-medit="${x.id}" data-type="${t}">変更</button><button data-mtoggle="${x.id}" data-type="${t}">${x.active===false?'表示':'非表示'}</button><button data-mdelete="${x.id}" data-type="${t}">削除</button></div></div>`).join('')||'<p class="muted">登録なし</p>'}</div></section>`).join('')}
 function options(t,blank='選択してください'){return `<option value="">${blank}</option>`+ordered(t).filter(x=>x.active!==false).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}
@@ -44,5 +96,39 @@ $('importRows').onchange=updateImportCount;
 $('importForm').onsubmit=async e=>{e.preventDefault();if($('importStep2').hidden)return;const shipNo=normalizeShipNo($('importShipNo').value),displayName=$('importDisplayName').value.trim(),client=$('importClient').value.trim();const rows=[...document.querySelectorAll('[data-import-row]')].filter(r=>r.querySelector('.import-select').checked);const projects=rows.map(r=>({shipNo,displayName,client,productName:r.querySelector('.import-product').value.trim(),quantity:Number(r.querySelector('.import-quantity').value)||0,spec:r.querySelector('.import-spec').value.trim(),notes:'',employeeId:r.querySelector('.import-employee').value,dueDate:r.querySelector('.import-date').value}));if(!projects.length){$('importError').textContent='登録する明細を選択してください。';return}if(!displayName||projects.some(x=>!x.productName||!x.employeeId||!x.dueDate)){$('importError').textContent='表示名・製品名・担当者・納期を確認してください。';return}$('importError').textContent='';try{await api(API.projects,{method:'POST',body:{projects}});$('importDialog').close();await load();toast(`${projects.length}件を登録しました`)}catch(x){$('importError').textContent=x.message}};
 document.body.onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view){document.querySelectorAll('.nav,.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(b.dataset.view+'View').classList.add('active')}if(b.id==='addProject'||b.dataset.add!==undefined)openProject();if(b.id==='importExcel')openImport();if(b.dataset.close!==undefined)b.closest('dialog').close();if(b.dataset.edit)openProject(b.dataset.edit);if(b.dataset.detail)openDetail(b.dataset.detail);if(b.dataset.detailEdit){$('detailDialog').close();openProject(b.dataset.detailEdit)}if(b.dataset.requestDelete)requestDelete(b.dataset.requestDelete);if(b.id==='confirmDelete')await confirmDelete();if(b.dataset.toggle){await api(API.projects,{method:'PUT',body:{id:b.dataset.toggle,action:'toggle'}});load()}if(b.dataset.delete)requestDelete(b.dataset.delete);if(b.dataset.medit){const item=S.masters[b.dataset.type].find(x=>x.id===b.dataset.medit),newName=prompt('新しい名称を入力してください。',item?.name||'');if(newName!==null&&newName.trim()){await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.medit,name:newName}});load()}}if(b.dataset.mtoggle){const item=S.masters[b.dataset.type].find(x=>x.id===b.dataset.mtoggle);await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.mtoggle,active:item?.active===false}});load()}if(b.dataset.move){await api(API.masters,{method:'PUT',body:{type:b.dataset.type,id:b.dataset.id,action:'move',direction:b.dataset.move}});load()}if(b.dataset.mdelete&&confirm('この項目を削除しますか？')){await api(`${API.masters}?id=${encodeURIComponent(b.dataset.mdelete)}`,{method:'DELETE',body:{type:b.dataset.type}});load()}};
 document.body.onsubmit=async e=>{const f=e.target.closest('[data-master]');if(!f)return;e.preventDefault();const input=f.querySelector('input');try{await api(API.masters,{method:'POST',body:{type:f.dataset.master,name:input.value}});input.value='';load()}catch(x){toast(x.message)}};
+document.body.addEventListener('change',e=>{
+  const checkbox=e.target.closest('[data-select-project]');
+  if(!checkbox)return;
+
+  const id=checkbox.dataset.selectProject;
+
+  if(checkbox.checked){
+    S.selectedProjectIds.add(id);
+  }else{
+    S.selectedProjectIds.delete(id);
+  }
+
+  const count=$('selectedProjectCount');
+  if(count){
+    count.textContent=`${S.selectedProjectIds.size}件選択中`;
+  }
+});
+
+document.body.addEventListener('click',e=>{
+  const button=e.target.closest('button');
+  if(!button)return;
+
+  if(button.id==='selectVisible'){
+    filtered().forEach(project=>{
+      S.selectedProjectIds.add(project.id);
+    });
+    renderDeadlines();
+  }
+
+  if(button.id==='clearProjectSelection'){
+    S.selectedProjectIds.clear();
+    renderDeadlines();
+  }
+});
 $('refresh').onclick=load;$('search').oninput=e=>{S.q=e.target.value;renderSchedule();renderDeadlines()};$('prev').onclick=()=>{S.month=new Date(S.month.getFullYear(),S.month.getMonth()-1,1);renderSchedule()};$('next').onclick=()=>{S.month=new Date(S.month.getFullYear(),S.month.getMonth()+1,1);renderSchedule()};
 if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));load();
