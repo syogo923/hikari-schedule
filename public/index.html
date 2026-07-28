@@ -1,31 +1,8 @@
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d6b57"><meta name="description" content="光銘板工芸社 社内用ポータル">
-  <title>光ポータル</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<header class="topbar"><div class="brand"><div class="brand-mark">光</div><div><h1>光ポータル</h1><p>社内スケジュール・納期管理</p></div></div><button id="refreshButton" class="secondary-button" type="button">更新</button></header>
-<nav class="portal-nav" aria-label="画面切替"><button class="nav-button active" data-view="dashboard">ホーム</button><button class="nav-button" data-view="schedule">予定表</button><button class="nav-button" data-view="deadlines">納期管理</button></nav>
-<main class="page-shell">
-<section id="dashboardView" class="view active">
-  <section class="today-panel"><div><p class="eyebrow">本日の予定</p><h2 id="todayTitle">読み込み中…</h2></div><div id="todaySummary" class="today-summary"></div></section>
-  <section class="summary-grid">
-    <article class="summary-card danger"><span>期限超過</span><strong id="overdueCount">0</strong></article>
-    <article class="summary-card warning"><span>本日納期</span><strong id="todayDueCount">0</strong></article>
-    <article class="summary-card"><span>7日以内</span><strong id="weekDueCount">0</strong></article>
-    <article class="summary-card success"><span>完了済み</span><strong id="completedCount">0</strong></article>
-  </section>
-  <section class="card"><div class="section-heading"><div><p class="eyebrow">優先確認</p><h2>直近の納期</h2></div><button class="primary-button" data-open-deadline type="button">＋ 案件を追加</button></div><div id="dashboardDeadlines" class="deadline-list"></div></section>
-</section>
-<section id="scheduleView" class="view">
-  <section class="main-grid"><article class="card calendar-card"><div class="calendar-header"><button id="prevMonth" class="icon-button">‹</button><div><h2 id="monthTitle"></h2><button id="goToday" class="text-button">今日に戻る</button></div><button id="nextMonth" class="icon-button">›</button></div><div class="weekday-row"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div><div id="calendar" class="calendar-grid"></div></article>
-  <article class="card schedule-card"><div class="section-heading"><div><p class="eyebrow">選択した日</p><h2 id="selectedDateTitle"></h2></div><button id="openFormButton" class="primary-button">＋ 予定を追加</button></div><div id="scheduleList" class="schedule-list"></div></article></section>
-  <section class="card upcoming-card"><div class="section-heading compact"><div><p class="eyebrow">これからの予定</p><h2>今後7日間</h2></div></div><div id="upcomingList" class="upcoming-list"></div></section>
-</section>
-<section id="deadlinesView" class="view"><section class="card"><div class="section-heading"><div><p class="eyebrow">製作・出荷管理</p><h2>納期一覧</h2></div><button class="primary-button" data-open-deadline>＋ 案件を追加</button></div><div class="filter-row"><button class="filter-button active" data-filter="active">未完了</button><button class="filter-button" data-filter="all">すべて</button><button class="filter-button" data-filter="completed">完了済み</button></div><div id="deadlineList" class="deadline-list"></div></section></section>
-</main>
-<dialog id="scheduleDialog" class="schedule-dialog"><form id="scheduleForm" method="dialog" novalidate><div class="dialog-header"><div><p class="eyebrow">予定入力</p><h2 id="dialogTitle">予定を追加</h2></div><button id="closeDialog" class="close-button" type="button">×</button></div><input id="eventId" type="hidden"><label><span>日付</span><input id="eventDate" type="date" required></label><label><span>時間</span><input id="eventTime" type="time" required></label><label><span>何をするか</span><input id="eventTask" maxlength="200" required></label><p id="formError" class="form-error"></p><div class="dialog-actions"><button id="cancelButton" class="secondary-button" type="button">キャンセル</button><button id="saveButton" class="primary-button" type="submit">登録する</button></div></form></dialog>
-<dialog id="deadlineDialog" class="schedule-dialog"><form id="deadlineForm" method="dialog" novalidate><div class="dialog-header"><div><p class="eyebrow">納期入力</p><h2 id="deadlineDialogTitle">案件を追加</h2></div><button id="closeDeadlineDialog" class="close-button" type="button">×</button></div><input id="deadlineId" type="hidden"><label><span>案件名・品名</span><input id="deadlineTitle" maxlength="120" placeholder="例：○○丸 銘板一式" required></label><label><span>得意先</span><input id="deadlineClient" maxlength="100" placeholder="例：○○造船様"></label><label><span>納期</span><input id="deadlineDate" type="date" required></label><label><span>優先度</span><select id="deadlinePriority"><option value="normal">通常</option><option value="high">高い</option><option value="low">低い</option></select></label><label><span>メモ</span><textarea id="deadlineNotes" maxlength="500" rows="3" placeholder="材料待ち・出荷方法など"></textarea></label><p id="deadlineFormError" class="form-error"></p><div class="dialog-actions"><button id="cancelDeadlineButton" class="secondary-button" type="button">キャンセル</button><button id="saveDeadlineButton" class="primary-button" type="submit">登録する</button></div></form></dialog>
-<div id="toast" class="toast"></div><script src="/app.js" defer></script></body></html>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d1b3d"><title>光ポータル Ver2.0</title><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon-192.png"><link rel="stylesheet" href="/style.css"></head><body>
+<header class="topbar"><div class="brand"><img src="/icons/icon-192.png" alt=""><div><h1>光ポータル</h1><p>仕事の見える化・納期共有</p></div></div><button id="refresh" class="secondary">更新</button></header>
+<nav><button class="nav active" data-view="home">ホーム</button><button class="nav" data-view="deadlines">納期一覧</button><button class="nav" data-view="masters">マスタ管理</button></nav>
+<main><section id="homeView" class="view active"><div class="toolbar"><div><button id="prev">‹</button><strong id="month"></strong><button id="next">›</button></div><input id="search" type="search" placeholder="番船・表示名・製品・得意先・担当者を検索"><button id="addProject" class="primary">＋ 案件を追加</button></div><div id="emptyEmployees" class="notice"></div><div class="schedule-wrap"><table id="scheduleTable"></table></div></section>
+<section id="deadlinesView" class="view"><div class="section-head"><h2>納期一覧</h2><button class="primary" data-add>＋ 案件を追加</button></div><div id="deadlineList"></div></section>
+<section id="mastersView" class="view"><h2>マスタ管理</h2><p class="muted">初期データはありません。会社で使う名称を登録してください。</p><div class="master-grid" id="masterGrid"></div></section></main>
+<dialog id="projectDialog"><form id="projectForm"><header><h2 id="projectHeading">案件を追加</h2><button type="button" data-close>×</button></header><input id="projectId" type="hidden"><label>番船・案件番号<input id="shipNo" placeholder="S.2830"></label><label>表示名<select id="displayName" required></select></label><label>製品名<select id="productName" required></select></label><label>得意先<select id="client"></select></label><label>担当者<select id="employeeId" required></select></label><label>納期<input id="dueDate" type="date" required></label><label>メモ<textarea id="notes" rows="3"></textarea></label><p id="projectError" class="error"></p><footer><button type="button" class="secondary" data-close>キャンセル</button><button class="primary">登録する</button></footer></form></dialog>
+<dialog id="detailDialog"><div id="detailBody"></div></dialog><div id="toast"></div><script src="/app.js" defer></script></body></html>
