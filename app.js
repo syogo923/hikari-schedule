@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#0d6b57"/>
-  <rect x="92" y="120" width="328" height="300" rx="45" fill="#fff"/>
-  <rect x="92" y="120" width="328" height="92" rx="45" fill="#f0a23a"/>
-  <rect x="155" y="73" width="34" height="98" rx="17" fill="#fff"/>
-  <rect x="323" y="73" width="34" height="98" rx="17" fill="#fff"/>
-  <text x="256" y="354" text-anchor="middle" font-size="156" font-family="sans-serif" font-weight="800" fill="#0d6b57">光</text>
-</svg>
+const CACHE='hikari-portal-v2-4-2';const ASSETS=['/','/index.html','/style.css','/app.js','/manifest.webmanifest','/icons/icon-192.png','/icons/icon-512.png'];self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||new URL(e.request.url).pathname.startsWith('/api/'))return;e.respondWith(fetch(e.request).then(r=>{const c=r.clone();caches.open(CACHE).then(x=>x.put(e.request,c));return r}).catch(()=>caches.match(e.request)))})
