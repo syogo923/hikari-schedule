@@ -1,5 +1,13 @@
 const API={projects:'/api/projects',masters:'/api/masters',excel:'/api/excel-import'};
-const S={projects:[],masters:{employees:[],clients:[],displayNames:[],products:[]},month:new Date(new Date().getFullYear(),new Date().getMonth(),1),q:'',importItems:[],pendingDeleteId:''};
+const S={
+  projects:[],
+  masters:{employees:[],clients:[],displayNames:[],products:[]},
+  month:new Date(new Date().getFullYear(),new Date().getMonth(),1),
+  q:'',
+  importItems:[],
+  pendingDeleteId:'',
+  selectedProjectIds:new Set()
+};
 const $=id=>document.getElementById(id);
 const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const jp=v=>new Intl.DateTimeFormat('ja-JP',{month:'numeric',day:'numeric',weekday:'short'}).format(new Date(`${v}T00:00:00`));
