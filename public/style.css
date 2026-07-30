@@ -756,3 +756,56 @@ dd{
     flex:1;
   }
 }
+
+
+/* Ver2.5.1 利用者選択 */
+.current-actor-status{
+  border:1px solid hsl(var(--employee-hue,215) 45% 72%);
+  background:hsl(var(--employee-hue,215) 70% 96%);
+  color:hsl(var(--employee-hue,215) 55% 28%);
+  border-radius:999px;
+  padding:9px 14px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.current-actor-status:hover{
+  filter:brightness(.98);
+}
+.actor-settings-button{
+  white-space:nowrap;
+}
+.employee-fieldset{
+  border:1px solid #dfe4ec;
+  border-radius:12px;
+  padding:12px;
+}
+.employee-choices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:9px;
+}
+.employee-choice{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:9px 12px;
+  border:1px solid hsl(var(--employee-hue,215) 45% 75%);
+  border-radius:999px;
+  background:hsl(var(--employee-hue,215) 70% 97%);
+  cursor:pointer;
+}
+.employee-choice:has(input:checked){
+  background:hsl(var(--employee-hue,215) 70% 90%);
+  box-shadow:0 0 0 2px hsl(var(--employee-hue,215) 55% 55% / .22);
+}
+.employee-choice input{
+  margin:0;
+  accent-color:hsl(var(--employee-hue,215) 60% 45%);
+}
+.actor-dialog{
+  width:min(560px,92vw);
+}
+@media (max-width:700px){
+  .topbar-actions{flex-wrap:wrap;justify-content:flex-end}
+  .current-actor-status{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+}
