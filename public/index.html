@@ -695,18 +695,15 @@
             <select id="importEmployee"></select>
           </label>
 
-          <!-- Ver2.5複数担当者用 -->
-          <fieldset
-            id="importEmployeeChoicesField"
-            class="employee-fieldset import-employee-fieldset"
-            hidden
-          >
-            <legend>共通担当者</legend>
+          <!-- Ver2.6.3 共通担当者：複数選択プルダウン -->
+          <label class="import-common-employee-label">
+            共通担当者
+            <span id="importEmployeeDropdownHost"></span>
+          </label>
 
-            <div
-              id="importEmployeeChoices"
-              class="employee-choices compact"
-            ></div>
+          <!-- 互換用（非表示） -->
+          <fieldset id="importEmployeeChoicesField" hidden>
+            <div id="importEmployeeChoices"></div>
           </fieldset>
 
         </div>
