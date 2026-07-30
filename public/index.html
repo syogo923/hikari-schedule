@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver2.6.0</title>
+  <title>光ポータル Ver2.7.0 Phase1</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=2.6.0">
+  <link rel="stylesheet" href="/style.css?v=2.7.0-phase1">
 </head>
 
 <body>
@@ -83,13 +83,18 @@
         利用者設定
       </button>
 
-      <button
-        id="refresh"
-        type="button"
-        class="secondary"
-      >
-        更新
-      </button>
+      <div class="refresh-control">
+        <button
+          id="refresh"
+          type="button"
+          class="secondary refresh-button"
+          aria-live="polite"
+        >
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span id="refreshLabel">更新</span>
+        </button>
+        <small id="lastUpdated" class="last-updated">最終更新：—</small>
+      </div>
     </div>
 
   </header>
@@ -923,7 +928,7 @@
   ></div>
 
   <script
-    src="/app.js?v=2.6.0"
+    src="/app.js?v=2.7.0-phase1"
     defer
   ></script>
 
