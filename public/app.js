@@ -224,6 +224,8 @@ function fillSelects() {
   if ($('importEmployee')) $('importEmployee').innerHTML = optionHtml('employees', '担当者を選択');
   renderEmployeeCheckboxes('employeeChoices');
   renderEmployeeCheckboxes('importEmployeeChoices');
+  const commonDropdownHost = $('importEmployeeDropdownHost');
+  if (commonDropdownHost) commonDropdownHost.innerHTML = employeeMultiDropdownHtml('importEmployeeDropdown', []);
   renderActorChoices('actorChoices', S.actorEmployeeId);
   renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
   if ($('historyActorFilter')) {
@@ -234,7 +236,7 @@ function fillSelects() {
   if ($('legacyEmployeeLabel')) $('legacyEmployeeLabel').hidden = true;
   if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
   if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
-  if ($('importEmployeeChoicesField')) $('importEmployeeChoicesField').hidden = false;
+  if ($('importEmployeeChoicesField')) $('importEmployeeChoicesField').hidden = true;
 }
 
 function filtered() {
@@ -367,6 +369,8 @@ function openImport() {
   $('importError').textContent = '';
   S.importItems = [];
   renderEmployeeCheckboxes('importEmployeeChoices');
+  const commonDropdownHost = $('importEmployeeDropdownHost');
+  if (commonDropdownHost) commonDropdownHost.innerHTML = employeeMultiDropdownHtml('importEmployeeDropdown', []);
   $('importDialog').showModal();
 }
 
@@ -402,17 +406,43 @@ function isImportableItem(item) {
 }
 
 
-function rowEmployeeSelect(index, selectedId = '', autoEtching = false) {
-  const options = ordered('employees')
-    .filter(item => item.active !== false)
-    .map(item => `<option value="${esc(item.id)}" ${item.id === selectedId ? 'selected' : ''}>${esc(item.name)}</option>`)
-    .join('');
+function employeeMultiDropdownHtml(containerId, selectedIds = [], autoEtching = false) {
+  const selected = new Set(selectedIds);
+  const employees = ordered('employees').filter(item => item.active !== false);
+  const selectedNames = employees.filter(item => selected.has(item.id)).map(item => item.name);
+  const label = selectedNames.length ? selectedNames.join('・') : '担当者を選択';
+  const choices = employees.map(item => `
+    <label class="employee-choice" style="${employeeColorStyle(item.id)}">
+      <input type="checkbox" value="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''}>
+      <span>${esc(item.name)}</span>
+    </label>
+  `).join('');
+  return `<details class="employee-multi-dropdown ${autoEtching ? 'auto-etching' : ''}" id="${esc(containerId)}">
+    <summary><span class="employee-multi-label">${esc(label)}</span><span class="employee-multi-count">${selectedNames.length ? `（${selectedNames.length}名）` : ''}</span></summary>
+    <div class="employee-multi-panel">${choices}<button type="button" class="secondary employee-multi-close">閉じる</button></div>
+  </details>`;
+}
+
+function updateEmployeeMultiLabel(details) {
+  if (!details) return;
+  const ids = [...details.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value);
+  const names = ids.map(employeeName);
+  const label = details.querySelector('.employee-multi-label');
+  const count = details.querySelector('.employee-multi-count');
+  if (label) label.textContent = names.length ? names.join('・') : '担当者を選択';
+  if (count) count.textContent = names.length ? `（${names.length}名）` : '';
+}
+
+function setEmployeeMultiValues(details, selectedIds = []) {
+  if (!details) return;
+  const selected = new Set(selectedIds);
+  details.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = selected.has(input.value); });
+  updateEmployeeMultiLabel(details);
+}
+
+function rowEmployeeSelect(index, selectedIds = [], autoEtching = false) {
   return `<div class="import-assignee-select-wrap ${autoEtching ? 'auto-etching' : ''}" data-import-employees="${index}">
-    <select class="import-employee-select" aria-label="担当者">
-      <option value="">担当者を選択</option>
-      ${options}
-    </select>
-    ${autoEtching ? '<small class="import-auto-note">エッチング → マサヒーロー</small>' : ''}
+    ${employeeMultiDropdownHtml(`importEmployeeDropdown-${index}`, selectedIds, autoEtching)}
   </div>`;
 }
 
@@ -423,7 +453,7 @@ function renderImportRows() {
     const autoEtching = isEtching(item) && Boolean(masahiroId);
     const selectedIds = autoEtching ? [masahiroId] : [];
     if (selectedIds.length) hasAutoAssign = true;
-    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds[0] || '', autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
+    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
   }).join('');
   if ($('etchingAutoAssignNotice')) $('etchingAutoAssignNotice').hidden = !hasAutoAssign;
   updateImportCount();
@@ -584,14 +614,28 @@ function bindFixedEvents() {
   };
 
   $('applyImportCommon').onclick = () => {
-    const employeeId = checkedValues('importEmployeeChoices')[0] || '';
+    const commonDropdown = $('importEmployeeDropdown');
+    const employeeIds = commonDropdown ? [...commonDropdown.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value) : [];
     const date = $('importDueDate').value;
-    document.querySelectorAll('.import-employee-select').forEach(select => { select.value = employeeId; });
+    document.querySelectorAll('[data-import-employees] .employee-multi-dropdown').forEach(details => setEmployeeMultiValues(details, employeeIds));
     document.querySelectorAll('.import-date').forEach(input => { if (date) input.value = date; });
   };
 
   $('backImport').onclick = () => { $('importStep1').hidden = false; $('importStep2').hidden = true; };
-  $('importRows').onchange = () => { updateImportCount(); };
+  $('importRows').onchange = event => {
+    const details = event.target.closest('.employee-multi-dropdown');
+    if (details) updateEmployeeMultiLabel(details);
+    updateImportCount();
+  };
+
+  document.addEventListener('change', event => {
+    const details = event.target.closest('.employee-multi-dropdown');
+    if (details) updateEmployeeMultiLabel(details);
+  });
+  document.addEventListener('click', event => {
+    const close = event.target.closest('.employee-multi-close');
+    if (close) close.closest('details').open = false;
+  });
 
   $('importForm').onsubmit = async event => {
     event.preventDefault();
@@ -599,8 +643,8 @@ function bindFixedEvents() {
     const rows = [...document.querySelectorAll('[data-import-row]')].filter(row => row.querySelector('.import-select').checked);
     const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: $('importDisplayName').value.trim(), client: $('importClient').value.trim() };
     const projects = rows.map(row => {
-      const employeeId = row.querySelector('.import-employee-select').value;
-      const ids = employeeId ? [employeeId] : [];
+      const ids = [...row.querySelectorAll('.employee-multi-dropdown input[type="checkbox"]:checked')].map(input => input.value);
+      const employeeId = ids[0] || '';
       return { ...common, productName: row.querySelector('.import-product').value.trim(), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
     });
     if (!projects.length) { $('importError').textContent = '登録する明細を選択してください。'; return; }
