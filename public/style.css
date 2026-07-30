@@ -598,59 +598,42 @@ dd{
   width:auto;
 }
 
-/* Ver2.6.1 楽一取込：自動担当者をコンパクト表示 */
-.import-assignee-details{
+/* Ver2.6.2 楽一取込：担当者をプルダウン表示 */
+.import-assignee-select-wrap{
+  display:grid;
+  gap:5px;
   width:100%;
 }
 
-.import-assignee-details summary{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
+.import-employee-select{
+  width:100%;
   min-height:44px;
-  padding:9px 11px;
-  border:1px solid #9eddb9;
+  padding:8px 36px 8px 11px;
+  border:1px solid #cbd6e5;
   border-radius:10px;
+  background:#fff;
+  color:#172033;
+  font-weight:750;
+  cursor:pointer;
+}
+
+.import-employee-select:focus{
+  outline:none;
+  border-color:#6f9ed8;
+  box-shadow:0 0 0 3px rgba(69,121,184,.16);
+}
+
+.import-assignee-select-wrap.auto-etching .import-employee-select{
+  border-color:#9eddb9;
   background:#ecfbf3;
   color:#145b36;
-  font-weight:800;
-  cursor:pointer;
-  list-style:none;
 }
 
-.import-assignee-details summary::-webkit-details-marker{
-  display:none;
-}
-
-.import-assignee-label{
-  line-height:1.35;
-  white-space:nowrap;
-}
-
-.import-assignee-change{
-  flex:0 0 auto;
-  padding:4px 8px;
-  border-radius:999px;
-  background:#fff;
-  color:#35506f;
+.import-auto-note{
+  color:#28764c;
   font-size:12px;
-  font-weight:700;
-  border:1px solid #cbd6e5;
-}
-
-.import-assignee-details[open] summary{
-  margin-bottom:8px;
-  border-color:#8eb6e8;
-  background:#f3f7fd;
-  color:#243f68;
-}
-
-.import-assignee-details .import-row-employees{
-  padding:8px;
-  border:1px solid #dfe6ef;
-  border-radius:10px;
-  background:#fff;
+  font-weight:800;
+  line-height:1.3;
 }
 
 .wide-dialog footer{
