@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver2.5</title>
+  <title>光ポータル Ver2.6.0</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=2.5.1">
+  <link rel="stylesheet" href="/style.css?v=2.6.0">
 </head>
 
 <body>
@@ -120,6 +120,8 @@
     >
       更新履歴
     </button>
+
+    <button type="button" class="nav" data-view="calculator">材料費計算</button>
 
     <button
       type="button"
@@ -314,6 +316,78 @@
 
       <div id="historyList"></div>
 
+    </section>
+
+
+    <!-- 材料費計算 -->
+    <section id="calculatorView" class="view">
+      <div class="section-head calculator-head">
+        <div>
+          <span class="eyebrow">COST CALCULATOR</span>
+          <h2>材料費計算</h2>
+          <p class="muted">板材の面積比・取り数から、1個あたりの材料費をすばやく計算します。</p>
+        </div>
+      </div>
+
+      <div class="calculator-tabs" role="tablist">
+        <button type="button" class="calculator-tab active" data-calc-tab="area">面積計算</button>
+        <button type="button" class="calculator-tab" data-calc-tab="yield">取り数計算</button>
+        <button type="button" class="calculator-tab" data-calc-tab="materials">材料マスタ</button>
+      </div>
+
+      <section id="calcAreaPanel" class="calculator-panel active">
+        <div class="calculator-layout">
+          <form id="areaCalculatorForm" class="calculator-card">
+            <div class="card-title"><div><span class="step-badge">01</span><h3>面積から計算</h3></div><button type="button" id="clearAreaCalculator" class="text-button">入力をクリア</button></div>
+            <label>材料マスタ<select id="areaMaterialSelect"><option value="">選択しない</option></select></label>
+            <div class="dimension-grid">
+              <label>材料 縦<div class="unit-input"><input id="materialHeight" type="number" min="0" step="any" inputmode="decimal"><select id="materialHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>材料 横<div class="unit-input"><input id="materialWidth" type="number" min="0" step="any" inputmode="decimal"><select id="materialWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <label>材料価格（円／枚）<input id="materialPrice" type="number" min="0" step="any" inputmode="decimal"></label>
+            <div class="dimension-grid">
+              <label>製品 縦<div class="unit-input"><input id="productHeight" type="number" min="0" step="any" inputmode="decimal"><select id="productHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>製品 横<div class="unit-input"><input id="productWidth" type="number" min="0" step="any" inputmode="decimal"><select id="productWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <button type="submit" class="primary calculator-submit">計算する</button>
+          </form>
+          <aside class="result-card" aria-live="polite">
+            <span class="result-kicker">CALCULATION RESULT</span><h3>計算結果</h3>
+            <div class="main-result"><span>1個あたり材料費</span><strong id="areaCostResult">—</strong></div>
+            <dl class="result-list"><div><dt>1円単位切り上げ</dt><dd id="areaCostCeil">—</dd></div><div><dt>材料面積</dt><dd id="materialAreaResult">—</dd></div><div><dt>製品面積</dt><dd id="productAreaResult">—</dd></div><div><dt>面積比</dt><dd id="areaRatioResult">—</dd></div></dl>
+            <p class="formula-note">材料価格 × 製品面積 ÷ 材料面積</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="calcYieldPanel" class="calculator-panel">
+        <div class="calculator-layout compact-layout">
+          <form id="yieldCalculatorForm" class="calculator-card">
+            <div class="card-title"><div><span class="step-badge">02</span><h3>取り数から計算</h3></div></div>
+            <label>材料価格（円／枚）<input id="yieldMaterialPrice" type="number" min="0" step="any" inputmode="decimal" required></label>
+            <label>1枚から取れる個数<input id="yieldCount" type="number" min="1" step="1" inputmode="numeric" required></label>
+            <button type="submit" class="primary calculator-submit">計算する</button>
+          </form>
+          <aside class="result-card"><span class="result-kicker">CALCULATION RESULT</span><h3>計算結果</h3><div class="main-result"><span>1個あたり材料費</span><strong id="yieldCostResult">—</strong></div><dl class="result-list"><div><dt>1円単位切り上げ</dt><dd id="yieldCostCeil">—</dd></div><div><dt>計算式</dt><dd id="yieldFormulaResult">—</dd></div></dl></aside>
+        </div>
+      </section>
+
+      <section id="calcMaterialsPanel" class="calculator-panel">
+        <div class="calculator-layout">
+          <form id="materialMasterForm" class="calculator-card">
+            <input id="materialMasterId" type="hidden">
+            <div class="card-title"><div><span class="step-badge">03</span><h3>材料マスタ登録</h3></div></div>
+            <label>材料名<input id="materialMasterName" required placeholder="例：アクリル透明 5t"></label>
+            <div class="dimension-grid">
+              <label>材料 縦<div class="unit-input"><input id="materialMasterHeight" type="number" min="0" step="any" required><select id="materialMasterHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>材料 横<div class="unit-input"><input id="materialMasterWidth" type="number" min="0" step="any" required><select id="materialMasterWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" required></label>
+            <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
+          </form>
+          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><div id="materialMasterList" class="material-master-list"></div></section>
+        </div>
+      </section>
     </section>
 
     <!-- マスタ管理 -->
@@ -852,7 +926,7 @@
   ></div>
 
   <script
-    src="/app.js?v=2.5.1"
+    src="/app.js?v=2.6.0"
     defer
   ></script>
 
