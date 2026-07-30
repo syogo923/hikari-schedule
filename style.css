@@ -657,11 +657,32 @@ function bindDelegatedEvents() {
   });
 }
 
+async function clearLegacyCacheOnce() {
+  const migrationKey = 'hikariPortal.cacheMigration.2.5.1';
+  if (localStorage.getItem(migrationKey)) return;
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map(registration => registration.unregister()));
+    }
+
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+    }
+  } catch (error) {
+    console.warn('旧キャッシュの削除に失敗しました。', error);
+  } finally {
+    localStorage.setItem(migrationKey, 'done');
+  }
+}
+
 async function init() {
+  await clearLegacyCacheOnce();
   ensureActorUi();
   bindFixedEvents();
   bindDelegatedEvents();
-  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   await load();
   startPolling();
 }
