@@ -7,6 +7,7 @@ const API = {
 };
 
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
+const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -22,7 +23,8 @@ const S = {
   history: [],
   historyLoaded: false,
   pendingRemoteUpdate: false,
-  pollTimer: null
+  pollTimer: null,
+  materials: []
 };
 
 const $ = id => document.getElementById(id);
@@ -382,9 +384,23 @@ function findMasahiroId() {
   return ordered('employees').find(item => ['マサヒーロー', 'まさひーろー', 'masahiro'].includes(normalized(item.name)))?.id || '';
 }
 
-function isEtching(item) {
-  return /エッチング|腐食/i.test([item.productName, item.spec, item.remarks].filter(Boolean).join(' '));
+function normalizeImportText(value) {
+  return String(value || '').normalize('NFKC').replace(/[\s　]+/g, '');
 }
+
+function isEtching(item) {
+  return /エッチング|腐食/i.test(normalizeImportText([item.productName, item.productName2, item.spec, item.remarks].filter(Boolean).join(' ')));
+}
+
+function isImportableItem(item) {
+  const product = normalizeImportText([item.productName, item.productName2].filter(Boolean).join(' '));
+  const quantity = Number(item.quantity);
+  if (!product || /^【.*】$/.test(product)) return false;
+  if (/見積総合計金額|見積外消費税|総合計|消費税|追加価格|注意事項/.test(product)) return false;
+  if (Number.isFinite(quantity) && quantity <= 0) return false;
+  return true;
+}
+
 
 function rowEmployeeCheckboxes(index, selectedIds) {
   const selected = new Set(selectedIds);
@@ -546,7 +562,7 @@ function bindFixedEvents() {
     if (!file) { $('importReadError').textContent = 'Excelファイルを選択してください。'; return; }
     try {
       const data = await api(API.excel, { method: 'POST', body: { base64: await fileBase64(file) } });
-      S.importItems = data.items || [];
+      S.importItems = (data.items || []).filter(isImportableItem);
       $('importClient').value = data.client || '';
       $('importDisplayName').value = data.displayName || '';
       $('importShipNo').value = 'S.';
@@ -659,6 +675,9 @@ function bindDelegatedEvents() {
       else if (button.id === 'bulkDeleteProjects') await bulkDeleteSelectedProjects();
       else if (button.id === 'confirmBulkDelete') await confirmBulkDelete();
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
+      else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
+      else if (button.dataset.materialDelete && confirm('この材料を削除しますか？')) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
       else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
@@ -668,8 +687,101 @@ function bindDelegatedEvents() {
   });
 }
 
+
+function loadMaterials() {
+  try { S.materials = JSON.parse(localStorage.getItem(STORAGE_MATERIALS) || '[]'); }
+  catch { S.materials = []; }
+  if (!Array.isArray(S.materials)) S.materials = [];
+}
+
+function saveMaterials() {
+  localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+  renderMaterialMaster();
+}
+
+function toMm(value, unit) {
+  const factors = { mm: 1, cm: 10, m: 1000 };
+  return Number(value) * (factors[unit] || 1);
+}
+
+function yen(value, decimals = 2) {
+  if (!Number.isFinite(value)) return '—';
+  return `${value.toLocaleString('ja-JP', { maximumFractionDigits: decimals })} 円`;
+}
+
+function areaText(mm2) {
+  if (!Number.isFinite(mm2)) return '—';
+  return `${mm2.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} mm² ／ ${(mm2 / 1000000).toLocaleString('ja-JP', { maximumFractionDigits: 6 })} m²`;
+}
+
+function renderMaterialMaster() {
+  const select = $('areaMaterialSelect');
+  if (select) {
+    const current = select.value;
+    select.innerHTML = '<option value="">選択しない</option>' + S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    select.value = S.materials.some(item => item.id === current) ? current : '';
+  }
+  const list = $('materialMasterList');
+  if (!list) return;
+  list.innerHTML = S.materials.length ? S.materials.map(item => `<article class="material-row"><div><strong>${esc(item.name)}</strong><span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span><small>${yen(Number(item.price), 0)}</small></div><div><button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button><button type="button" data-material-edit="${esc(item.id)}">編集</button><button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">材料はまだ登録されていません。</div>';
+}
+
+function applyMaterial(id) {
+  const item = S.materials.find(x => x.id === id);
+  if (!item) return;
+  $('areaMaterialSelect').value = item.id;
+  $('materialHeight').value = item.height;
+  $('materialHeightUnit').value = item.heightUnit;
+  $('materialWidth').value = item.width;
+  $('materialWidthUnit').value = item.widthUnit;
+  $('materialPrice').value = item.price;
+}
+
+function switchCalculatorTab(tab) {
+  document.querySelectorAll('.calculator-tab').forEach(node => node.classList.toggle('active', node.dataset.calcTab === tab));
+  document.querySelectorAll('.calculator-panel').forEach(node => node.classList.remove('active'));
+  $(`calc${tab[0].toUpperCase()}${tab.slice(1)}Panel`)?.classList.add('active');
+}
+
+function bindCalculatorEvents() {
+  document.querySelectorAll('[data-calc-tab]').forEach(button => button.onclick = () => switchCalculatorTab(button.dataset.calcTab));
+  $('areaMaterialSelect').onchange = event => { if (event.target.value) applyMaterial(event.target.value); };
+  $('areaCalculatorForm').onsubmit = event => {
+    event.preventDefault();
+    const mh = toMm($('materialHeight').value, $('materialHeightUnit').value);
+    const mw = toMm($('materialWidth').value, $('materialWidthUnit').value);
+    const ph = toMm($('productHeight').value, $('productHeightUnit').value);
+    const pw = toMm($('productWidth').value, $('productWidthUnit').value);
+    const price = Number($('materialPrice').value);
+    const ma = mh * mw, pa = ph * pw;
+    if (!(ma > 0) || !(pa > 0) || !(price >= 0)) return toast('寸法と材料価格を正しく入力してください。');
+    const ratio = pa / ma, cost = price * ratio;
+    $('areaCostResult').textContent = yen(cost);
+    $('areaCostCeil').textContent = yen(Math.ceil(cost), 0);
+    $('materialAreaResult').textContent = areaText(ma);
+    $('productAreaResult').textContent = areaText(pa);
+    $('areaRatioResult').textContent = `${(ratio * 100).toLocaleString('ja-JP', { maximumFractionDigits: 4 })} %`;
+  };
+  $('clearAreaCalculator').onclick = () => { $('areaCalculatorForm').reset(); ['areaCostResult','areaCostCeil','materialAreaResult','productAreaResult','areaRatioResult'].forEach(id => $(id).textContent='—'); };
+  $('yieldCalculatorForm').onsubmit = event => {
+    event.preventDefault(); const price=Number($('yieldMaterialPrice').value), count=Number($('yieldCount').value);
+    if (!(price >= 0) || !(count > 0)) return toast('材料価格と取り数を正しく入力してください。');
+    const cost=price/count; $('yieldCostResult').textContent=yen(cost); $('yieldCostCeil').textContent=yen(Math.ceil(cost),0); $('yieldFormulaResult').textContent=`${price.toLocaleString()} ÷ ${count.toLocaleString()}`;
+  };
+  $('materialMasterForm').onsubmit = event => {
+    event.preventDefault(); const id=$('materialMasterId').value || `mat-${Date.now()}`;
+    const item={id,name:$('materialMasterName').value.trim(),height:Number($('materialMasterHeight').value),heightUnit:$('materialMasterHeightUnit').value,width:Number($('materialMasterWidth').value),widthUnit:$('materialMasterWidthUnit').value,price:Number($('materialMasterPrice').value)};
+    if (!item.name || !(item.height>0) || !(item.width>0) || !(item.price>=0)) return toast('材料情報を正しく入力してください。');
+    const index=S.materials.findIndex(x=>x.id===id); if(index>=0) S.materials[index]=item; else S.materials.push(item); saveMaterials(); event.target.reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; toast(index>=0?'材料を更新しました':'材料を登録しました');
+  };
+  $('cancelMaterialEdit').onclick=()=>{ $('materialMasterForm').reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; };
+}
+
 async function init() {
   ensureActorUi();
+  loadMaterials();
+  renderMaterialMaster();
+  bindCalculatorEvents();
   bindFixedEvents();
   bindDelegatedEvents();
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
