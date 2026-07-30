@@ -598,6 +598,61 @@ dd{
   width:auto;
 }
 
+/* Ver2.6.1 楽一取込：自動担当者をコンパクト表示 */
+.import-assignee-details{
+  width:100%;
+}
+
+.import-assignee-details summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:44px;
+  padding:9px 11px;
+  border:1px solid #9eddb9;
+  border-radius:10px;
+  background:#ecfbf3;
+  color:#145b36;
+  font-weight:800;
+  cursor:pointer;
+  list-style:none;
+}
+
+.import-assignee-details summary::-webkit-details-marker{
+  display:none;
+}
+
+.import-assignee-label{
+  line-height:1.35;
+  white-space:nowrap;
+}
+
+.import-assignee-change{
+  flex:0 0 auto;
+  padding:4px 8px;
+  border-radius:999px;
+  background:#fff;
+  color:#35506f;
+  font-size:12px;
+  font-weight:700;
+  border:1px solid #cbd6e5;
+}
+
+.import-assignee-details[open] summary{
+  margin-bottom:8px;
+  border-color:#8eb6e8;
+  background:#f3f7fd;
+  color:#243f68;
+}
+
+.import-assignee-details .import-row-employees{
+  padding:8px;
+  border:1px solid #dfe6ef;
+  border-radius:10px;
+  background:#fff;
+}
+
 .wide-dialog footer{
   margin-top:14px;
 }
