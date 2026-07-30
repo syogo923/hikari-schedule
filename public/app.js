@@ -402,20 +402,41 @@ function isImportableItem(item) {
 }
 
 
-function rowEmployeeCheckboxes(index, selectedIds) {
+function employeeCheckboxOptions(selectedIds) {
   const selected = new Set(selectedIds);
-  return `<div class="employee-choices compact import-row-employees" data-import-employees="${index}">${ordered('employees').filter(item => item.active !== false).map(item => `<label class="employee-choice" style="${employeeColorStyle(item.id)}"><input type="checkbox" value="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span>${esc(item.name)}</span></label>`).join('')}</div>`;
+  return ordered('employees').filter(item => item.active !== false).map(item => `<label class="employee-choice" style="${employeeColorStyle(item.id)}"><input type="checkbox" value="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span>${esc(item.name)}</span></label>`).join('');
+}
+
+function rowEmployeeCheckboxes(index, selectedIds, autoEtching = false) {
+  const choices = employeeCheckboxOptions(selectedIds);
+  if (autoEtching) {
+    return `<details class="import-assignee-details" data-import-employees="${index}" data-auto-etching="true"><summary><span class="import-assignee-label" data-assignee-label>エッチング → マサヒーロー</span><span class="import-assignee-change">変更</span></summary><div class="employee-choices compact import-row-employees">${choices}</div></details>`;
+  }
+  return `<div class="employee-choices compact import-row-employees" data-import-employees="${index}">${choices}</div>`;
+}
+
+function updateImportAssigneeLabels(scope = document) {
+  scope.querySelectorAll('.import-assignee-details').forEach(container => {
+    const checked = [...container.querySelectorAll('input[type="checkbox"]:checked')];
+    const names = checked.map(input => employeeName(input.value));
+    const label = container.querySelector('[data-assignee-label]');
+    if (!label) return;
+    const masahiroOnly = checked.length === 1 && employeeName(checked[0].value) === 'マサヒーロー';
+    label.textContent = masahiroOnly ? 'エッチング → マサヒーロー' : (names.length ? `担当：${names.join('・')}` : '担当者を選択');
+  });
 }
 
 function renderImportRows() {
   const masahiroId = findMasahiroId();
   let hasAutoAssign = false;
   $('importRows').innerHTML = S.importItems.map((item, index) => {
-    const selectedIds = isEtching(item) && masahiroId ? [masahiroId] : [];
+    const autoEtching = isEtching(item) && Boolean(masahiroId);
+    const selectedIds = autoEtching ? [masahiroId] : [];
     if (selectedIds.length) hasAutoAssign = true;
-    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeCheckboxes(index, selectedIds)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
+    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeCheckboxes(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
   }).join('');
   if ($('etchingAutoAssignNotice')) $('etchingAutoAssignNotice').hidden = !hasAutoAssign;
+  updateImportAssigneeLabels($('importRows'));
   updateImportCount();
 }
 
@@ -580,10 +601,14 @@ function bindFixedEvents() {
       container.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = ids.includes(input.value); });
     });
     document.querySelectorAll('.import-date').forEach(input => { if (date) input.value = date; });
+    updateImportAssigneeLabels($('importRows'));
   };
 
   $('backImport').onclick = () => { $('importStep1').hidden = false; $('importStep2').hidden = true; };
-  $('importRows').onchange = updateImportCount;
+  $('importRows').onchange = event => {
+    updateImportCount();
+    if (event.target.matches('.import-row-employees input[type="checkbox"]')) updateImportAssigneeLabels($('importRows'));
+  };
 
   $('importForm').onsubmit = async event => {
     event.preventDefault();
