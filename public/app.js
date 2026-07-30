@@ -261,13 +261,26 @@ function renderSchedule() {
   let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
-    html += `<tr><th>${esc(jp(date))}</th>` + employees.map(item => {
+    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
       const cards = filtered().filter(project => project.dueDate === date && projectEmployeeIds(project).includes(item.id)).map(project => projectCard(project, item.id)).join('');
       return `<td>${cards}</td>`;
     }).join('') + '</tr>';
   }
   html += '</tbody>';
   if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
+}
+
+function scrollScheduleToToday({ behavior = 'auto' } = {}) {
+  const wrap = document.querySelector('.schedule-wrap');
+  const table = $('scheduleTable');
+  if (!wrap || !table) return;
+  const now = new Date();
+  if (S.month.getFullYear() !== now.getFullYear() || S.month.getMonth() !== now.getMonth()) { wrap.scrollTop = 0; return; }
+  const row = table.querySelector(`[data-schedule-date="${fd(now)}"]`);
+  if (!row) return;
+  const head = table.querySelector('thead');
+  const target = Math.max(0, row.offsetTop - (head?.offsetHeight || 0));
+  wrap.scrollTo({ top: target, behavior });
 }
 
 function renderDeadlines() {
@@ -286,10 +299,16 @@ function renderDeadlines() {
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
 }
 
-const masterLabels = { employees: '社員', clients: '得意先', displayNames: '表示名', products: '製品' };
+const masterLabels = { clients: '得意先', displayNames: '部門', products: '製作加工', employees: '職員' };
+const masterOrder = ['clients', 'displayNames', 'products', 'employees'];
+function masterCardHtml(type) {
+  const content = `<form data-master="${type}"><input placeholder="${masterLabels[type]}名"><button class="primary">追加</button></form><div>${ordered(type).map((item, index, array) => `<div class="master-item ${item.active === false ? 'inactive' : ''}"><span>${esc(item.name)}</span><div class="master-actions"><button type="button" data-move="up" data-id="${esc(item.id)}" data-type="${type}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="down" data-id="${esc(item.id)}" data-type="${type}" ${index === array.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-medit="${esc(item.id)}" data-type="${type}">変更</button><button type="button" data-mtoggle="${esc(item.id)}" data-type="${type}">${item.active === false ? '表示' : '非表示'}</button><button type="button" data-mdelete="${esc(item.id)}" data-type="${type}">削除</button></div></div>`).join('') || '<p class="muted">登録なし</p>'}</div>`;
+  if (type === 'employees') return `<details class="master-card master-card-collapsible"><summary><span>職員マスタ</span><small>ほぼ固定のため通常は非表示</small></summary><div class="master-card-body">${content}</div></details>`;
+  return `<section class="master-card"><h3>${masterLabels[type]}マスタ</h3>${content}</section>`;
+}
 function renderMasters() {
   if (!$('masterGrid')) return;
-  $('masterGrid').innerHTML = Object.keys(masterLabels).map(type => `<section class="master-card"><h3>${masterLabels[type]}マスタ</h3><form data-master="${type}"><input placeholder="${masterLabels[type]}名"><button class="primary">追加</button></form><div>${ordered(type).map((item, index, array) => `<div class="master-item ${item.active === false ? 'inactive' : ''}"><span>${esc(item.name)}</span><div class="master-actions"><button type="button" data-move="up" data-id="${esc(item.id)}" data-type="${type}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="down" data-id="${esc(item.id)}" data-type="${type}" ${index === array.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-medit="${esc(item.id)}" data-type="${type}">変更</button><button type="button" data-mtoggle="${esc(item.id)}" data-type="${type}">${item.active === false ? '表示' : '非表示'}</button><button type="button" data-mdelete="${esc(item.id)}" data-type="${type}">削除</button></div></div>`).join('') || '<p class="muted">登録なし</p>'}</div></section>`).join('');
+  $('masterGrid').innerHTML = masterOrder.map(masterCardHtml).join('');
 }
 
 function render() {
@@ -306,8 +325,11 @@ async function load({ silent = false } = {}) {
     S.masters = masterData.masters || S.masters;
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
     render();
+    requestAnimationFrame(() => scrollScheduleToToday());
     updateActorStatus();
     requestActorIfNeeded();
+    const lastUpdated = $('lastUpdated');
+    if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}`;
   } catch (error) {
     if (!silent) toast(error.message);
   }
@@ -578,6 +600,7 @@ function switchView(view) {
   document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
   $(`${view}View`)?.classList.add('active');
   if (view === 'history' && !S.historyLoaded) loadHistory();
+  if (view === 'home') requestAnimationFrame(() => scrollScheduleToToday());
 }
 
 function bindFixedEvents() {
@@ -676,10 +699,31 @@ function bindFixedEvents() {
     toast(`利用者を${employeeName(id)}さんに変更しました`);
   };
 
-  $('refresh').onclick = () => load();
+  $('refresh').onclick = async () => {
+    const button = $('refresh');
+    const label = $('refreshLabel');
+    if (button?.disabled) return;
+    button.disabled = true;
+    button.classList.add('is-loading');
+    if (label) label.textContent = '更新中…';
+    try {
+      await load();
+      button.classList.remove('is-loading');
+      button.classList.add('is-success');
+      if (label) label.textContent = '更新しました';
+      toast('最新のデータに更新しました');
+      setTimeout(() => {
+        button.classList.remove('is-success');
+        if (label) label.textContent = '更新';
+      }, 1400);
+    } finally {
+      button.disabled = false;
+      button.classList.remove('is-loading');
+    }
+  };
   $('search').oninput = event => { S.q = event.target.value; renderSchedule(); renderDeadlines(); };
-  $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); };
-  $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); };
+  $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
+  $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('refreshHistory').onclick = loadHistory;
   $('historyActionFilter').onchange = renderHistory;
   $('historyActorFilter').onchange = renderHistory;
