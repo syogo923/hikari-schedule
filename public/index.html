@@ -12,7 +12,7 @@
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=2.5.1">
 </head>
 
 <body>
@@ -65,20 +65,23 @@
 
     <div class="topbar-actions">
 
-      <!-- 更新履歴に記録する操作担当者 -->
-      <label
-        class="actor-selector"
-        for="actorEmployee"
+      <button
+        id="currentActorStatus"
+        type="button"
+        class="current-actor-status"
+        title="利用者を変更"
+        aria-label="現在の利用者を変更"
       >
-        <span>操作する人</span>
+        利用者：未設定
+      </button>
 
-        <select
-          id="actorEmployee"
-          aria-label="現在操作している担当者"
-        >
-          <option value="">選択してください</option>
-        </select>
-      </label>
+      <button
+        id="actorSettingsButton"
+        type="button"
+        class="secondary actor-settings-button"
+      >
+        利用者設定
+      </button>
 
       <button
         id="refresh"
@@ -849,7 +852,7 @@
   ></div>
 
   <script
-    src="/app.js"
+    src="/app.js?v=2.5.1"
     defer
   ></script>
 
