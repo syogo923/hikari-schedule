@@ -946,3 +946,127 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
 @media(max-width:700px){
   .employee-multi-panel{left:0;right:auto;min-width:min(260px,78vw)}
 }
+
+/* Ver2.7.0 Phase1: 更新ボタンの操作フィードバック */
+.refresh-control{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:3px;
+}
+
+.refresh-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-width:106px;
+  transition:background-color .18s,border-color .18s,transform .12s,box-shadow .18s;
+}
+
+.refresh-button:active{
+  transform:translateY(1px) scale(.98);
+}
+
+.refresh-icon{
+  display:inline-block;
+  font-size:17px;
+  line-height:1;
+}
+
+.refresh-button.is-loading{
+  background:#eef4ff;
+  border-color:#8aa9d4;
+  box-shadow:0 0 0 3px rgba(69,121,184,.13);
+}
+
+.refresh-button.is-loading .refresh-icon{
+  animation:refresh-spin .75s linear infinite;
+}
+
+.refresh-button.is-success{
+  background:#eaf8ef;
+  border-color:#71ba8b;
+  color:#145c31;
+}
+
+.refresh-button.is-success .refresh-icon{
+  transform:rotate(360deg);
+}
+
+.last-updated{
+  color:#667085;
+  font-size:11px;
+  white-space:nowrap;
+}
+
+@keyframes refresh-spin{
+  to{transform:rotate(360deg)}
+}
+
+/* Ver2.7.0 Phase1: 今日の行を見つけやすくする */
+#scheduleTable tr[data-schedule-date] > th{
+  scroll-margin-top:48px;
+}
+
+#scheduleTable tr[data-schedule-date] td,
+#scheduleTable tr[data-schedule-date] th{
+  transition:background-color .2s;
+}
+
+/* Ver2.7.0 Phase1: 職員マスタは通常折りたたみ */
+.master-card-collapsible{
+  grid-column:1 / -1;
+  padding:0;
+  overflow:hidden;
+}
+
+.master-card-collapsible summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:16px;
+  cursor:pointer;
+  font-weight:800;
+  list-style:none;
+  user-select:none;
+}
+
+.master-card-collapsible summary::-webkit-details-marker{
+  display:none;
+}
+
+.master-card-collapsible summary::after{
+  content:'＋';
+  flex:0 0 auto;
+  font-size:20px;
+  color:#53627a;
+}
+
+.master-card-collapsible[open] summary::after{
+  content:'−';
+}
+
+.master-card-collapsible summary small{
+  margin-left:auto;
+  color:#667085;
+  font-size:12px;
+  font-weight:500;
+}
+
+.master-card-collapsible[open] summary{
+  border-bottom:1px solid #e5e9f0;
+}
+
+.master-card-body{
+  padding:16px;
+}
+
+@media(max-width:700px){
+  .refresh-control{align-items:stretch;width:100%}
+  .refresh-button{width:100%}
+  .last-updated{text-align:center}
+  .master-card-collapsible summary{align-items:flex-start}
+  .master-card-collapsible summary small{display:none}
+}
