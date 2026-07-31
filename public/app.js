@@ -129,6 +129,8 @@ function confirmDangerAction(options) {
   });
 }
 
+/* ===== 共通ユーティリティ ===== */
+
 function byId(id){ return document.getElementById(id); }
 
 async function api(url, options = {}) {
@@ -410,6 +412,8 @@ async function restoreTrashEntry(trashId) {
   renderTrash();
   toast('案件を復元しました');
 }
+
+/* ===== ごみ箱関連 ===== */
 
 async function permanentlyDeleteTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
