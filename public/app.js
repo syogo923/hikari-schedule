@@ -129,7 +129,7 @@ function confirmDangerAction(options) {
   });
 }
 
-function byId(id){ return document.getElementById(id); }
+function byId(id){ return byId(id); }
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
