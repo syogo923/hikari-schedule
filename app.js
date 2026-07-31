@@ -8,6 +8,9 @@ const API = {
 
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
 const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
+const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
+const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
+const STORAGE_PROJECT_LIFECYCLE = 'hikariPortal.projectLifecycle.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -24,7 +27,10 @@ const S = {
   historyLoaded: false,
   pendingRemoteUpdate: false,
   pollTimer: null,
-  materials: []
+  materials: [],
+  assigneeProgress: {},
+  trash: [],
+  projectLifecycle: {}
 };
 
 const $ = id => document.getElementById(id);
@@ -40,6 +46,57 @@ function toast(message) {
   node.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => node.classList.remove('show'), 2400);
+}
+
+function portalConfirm({
+  title = '確認', message = '', detail = '', note = '',
+  confirmText = '実行する', cancelText = 'キャンセル',
+  tone = 'primary', icon = '✓'
+} = {}) {
+  const dialog = $('portalConfirmDialog');
+  if (!dialog) return Promise.resolve(window.confirm(message || title));
+  const titleNode = $('portalConfirmTitle');
+  const messageNode = $('portalConfirmMessage');
+  const detailNode = $('portalConfirmDetail');
+  const noteNode = $('portalConfirmNote');
+  const iconNode = $('portalConfirmIcon');
+  const okButton = $('portalConfirmOk');
+  const cancelButton = $('portalConfirmCancel');
+  titleNode.textContent = title;
+  messageNode.textContent = message;
+  detailNode.textContent = detail;
+  detailNode.hidden = !detail;
+  noteNode.textContent = note;
+  noteNode.hidden = !note;
+  iconNode.textContent = icon;
+  okButton.textContent = confirmText;
+  cancelButton.textContent = cancelText;
+  dialog.classList.toggle('is-danger', tone === 'danger');
+  dialog.classList.toggle('is-warning', tone === 'warning');
+  okButton.className = tone === 'danger' ? 'danger' : 'primary';
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      okButton.removeEventListener('click', onOk);
+      cancelButton.removeEventListener('click', onCancel);
+      dialog.removeEventListener('cancel', onNativeCancel);
+      dialog.removeEventListener('close', onClose);
+      if (dialog.open) dialog.close();
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onNativeCancel = event => { event.preventDefault(); finish(false); };
+    const onClose = () => finish(false);
+    okButton.addEventListener('click', onOk);
+    cancelButton.addEventListener('click', onCancel);
+    dialog.addEventListener('cancel', onNativeCancel);
+    dialog.addEventListener('close', onClose);
+    dialog.showModal();
+    requestAnimationFrame(() => okButton.focus());
+  });
 }
 
 async function api(url, options = {}) {
@@ -84,6 +141,362 @@ function projectEmployeeIds(project) {
 function employeeNames(project) {
   const names = projectEmployeeIds(project).map(employeeName);
   return names.length ? names.join('・') : '未設定';
+}
+
+function loadAssigneeProgress() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_ASSIGNEE_PROGRESS) || '{}');
+    S.assigneeProgress = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch {
+    S.assigneeProgress = {};
+  }
+}
+
+function saveAssigneeProgress() {
+  localStorage.setItem(STORAGE_ASSIGNEE_PROGRESS, JSON.stringify(S.assigneeProgress));
+}
+
+function loadProjectLifecycle() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_PROJECT_LIFECYCLE) || '{}');
+    S.projectLifecycle = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch {
+    S.projectLifecycle = {};
+  }
+}
+
+function saveProjectLifecycle() {
+  localStorage.setItem(STORAGE_PROJECT_LIFECYCLE, JSON.stringify(S.projectLifecycle));
+}
+
+function projectLifecycle(project) {
+  const saved = S.projectLifecycle[project.id];
+  const status = saved?.status === 'delivered'
+    ? 'delivered'
+    : saved?.status === 'production_complete'
+      ? 'production_complete'
+      : 'in_progress';
+  return {
+    status,
+    productionCompletedAt: saved?.productionCompletedAt || '',
+    productionCompletedBy: saved?.productionCompletedBy || '',
+    deliveredAt: saved?.deliveredAt || '',
+    deliveredBy: saved?.deliveredBy || ''
+  };
+}
+
+function lifecycleLabel(status) {
+  if (status === 'delivered') return '納品完了';
+  if (status === 'production_complete') return '製作完了';
+  return '製作中';
+}
+
+function lifecycleBadgeHtml(project, compact = false) {
+  const lifecycle = projectLifecycle(project);
+  return `<span class="project-status status-${esc(lifecycle.status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(lifecycle.status))}</span>`;
+}
+
+function setProjectLifecycle(projectId, status) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project) return false;
+  const now = new Date().toISOString();
+  const actor = employeeName(S.actorEmployeeId);
+  const current = projectLifecycle(project);
+
+  if (status === 'production_complete') {
+    const summary = assigneeProgressSummary(project);
+    if (!summary.total || summary.completed !== summary.total) {
+      toast('担当者全員を完了にしてから製作完了にしてください。');
+      return false;
+    }
+    S.projectLifecycle[projectId] = {
+      ...current,
+      status: 'production_complete',
+      productionCompletedAt: now,
+      productionCompletedBy: actor,
+      deliveredAt: '',
+      deliveredBy: ''
+    };
+  } else if (status === 'delivered') {
+    if (current.status !== 'production_complete') {
+      toast('先に製作完了にしてください。');
+      return false;
+    }
+    S.projectLifecycle[projectId] = {
+      ...current,
+      status: 'delivered',
+      deliveredAt: now,
+      deliveredBy: actor
+    };
+  } else {
+    S.projectLifecycle[projectId] = {
+      status: 'in_progress',
+      productionCompletedAt: '',
+      productionCompletedBy: '',
+      deliveredAt: '',
+      deliveredBy: ''
+    };
+  }
+
+  saveProjectLifecycle();
+  renderSchedule();
+  renderDeadlines();
+  return true;
+}
+
+
+function loadTrash() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_TRASH) || '[]');
+    S.trash = Array.isArray(saved) ? saved.filter(item => item && item.trashId && item.project) : [];
+  } catch {
+    S.trash = [];
+  }
+}
+
+function saveTrash() {
+  localStorage.setItem(STORAGE_TRASH, JSON.stringify(S.trash));
+  updateTrashCount();
+}
+
+function updateTrashCount() {
+  const count = S.trash.length;
+  const badge = $('trashCount');
+  if (badge) {
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+  }
+}
+
+function trashProjectPayload(project) {
+  return {
+    shipNo: project.shipNo || '',
+    displayName: project.displayName || '',
+    productName: project.productName || '',
+    client: project.client || '',
+    employeeIds: projectEmployeeIds(project),
+    employeeId: projectEmployeeIds(project)[0] || '',
+    dueDate: project.dueDate || '',
+    notes: project.notes || '',
+    quantity: project.quantity || 0,
+    spec: project.spec || '',
+    completed: Boolean(project.completed)
+  };
+}
+
+function createTrashEntry(project, deletedAt = new Date().toISOString()) {
+  return {
+    trashId: `trash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    deletedAt,
+    deletedBy: employeeName(S.actorEmployeeId),
+    originalProjectId: project.id,
+    project: trashProjectPayload(project),
+    assigneeProgress: projectAssigneeProgress(project),
+    lifecycle: projectLifecycle(project)
+  };
+}
+
+function addProjectsToTrash(projects) {
+  const entries = projects.map(project => createTrashEntry(project));
+  const replacingIds = new Set(entries.map(entry => entry.originalProjectId));
+  S.trash = [...entries, ...S.trash.filter(item => !replacingIds.has(item.originalProjectId))];
+  saveTrash();
+  return entries;
+}
+
+function addProjectToTrash(project) {
+  return addProjectsToTrash([project])[0];
+}
+
+function removeTrashEntry(trashId) {
+  S.trash = S.trash.filter(item => item.trashId !== trashId);
+  saveTrash();
+}
+
+function findRestoredProject(entry, beforeIds) {
+  const direct = S.projects.find(project => !beforeIds.has(project.id) &&
+    project.shipNo === entry.project.shipNo &&
+    project.displayName === entry.project.displayName &&
+    project.productName === entry.project.productName &&
+    project.dueDate === entry.project.dueDate);
+  return direct || S.projects.find(project => !beforeIds.has(project.id));
+}
+
+async function moveProjectToTrash(project) {
+  const snapshot = { ...project };
+  await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() });
+  addProjectToTrash(snapshot);
+  delete S.assigneeProgress[project.id];
+  delete S.projectLifecycle[project.id];
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+  return true;
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+async function restoreTrashEntry(trashId) {
+  const entry = S.trash.find(item => item.trashId === trashId);
+  if (!entry) return toast('ごみ箱の案件が見つかりません。');
+  const beforeIds = new Set(S.projects.map(project => project.id));
+  await api(API.projects, { method: 'POST', body: { ...entry.project, ...actorPayload() } });
+  await load();
+  const restored = findRestoredProject(entry, beforeIds);
+  if (restored && entry.assigneeProgress) {
+    S.assigneeProgress[restored.id] = Object.fromEntries(
+      projectEmployeeIds(restored).map(id => [id, entry.assigneeProgress[id] === true])
+    );
+    saveAssigneeProgress();
+  }
+  if (restored && entry.lifecycle) {
+    S.projectLifecycle[restored.id] = { ...entry.lifecycle };
+    saveProjectLifecycle();
+  }
+  removeTrashEntry(trashId);
+  renderTrash();
+  toast('案件を復元しました');
+}
+
+async function permanentlyDeleteTrashEntry(trashId) {
+  const entry = S.trash.find(item => item.trashId === trashId);
+  if (!entry) return;
+  const label = `${entry.project.shipNo || ''} ${entry.project.displayName || ''}`.trim() || 'この案件';
+  const approved = await portalConfirm({
+    title: '案件を完全に削除しますか？',
+    message: 'ごみ箱から完全に削除すると、元に戻せません。',
+    detail: label,
+    note: '必要な案件でないことを確認してから実行してください。',
+    confirmText: '完全に削除', tone: 'danger', icon: '！'
+  });
+  if (!approved) return;
+  removeTrashEntry(trashId);
+  renderTrash();
+  toast('ごみ箱から完全に削除しました');
+}
+
+async function emptyTrash() {
+  if (!S.trash.length) return;
+  const approved = await portalConfirm({
+    title: 'ごみ箱を空にしますか？',
+    message: `ごみ箱にある${S.trash.length}件をすべて完全に削除します。`,
+    note: 'この操作は元に戻せません。',
+    confirmText: 'すべて完全に削除', tone: 'danger', icon: '！'
+  });
+  if (!approved) return;
+  S.trash = [];
+  saveTrash();
+  renderTrash();
+  toast('ごみ箱を空にしました');
+}
+
+function projectAssigneeProgress(project) {
+  const saved = S.assigneeProgress[project.id];
+  const current = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  return Object.fromEntries(projectEmployeeIds(project).map(id => [id, current[id] === true]));
+}
+
+function assigneeProgressSummary(project) {
+  const progress = projectAssigneeProgress(project);
+  const total = Object.keys(progress).length;
+  const completed = Object.values(progress).filter(Boolean).length;
+  return { progress, total, completed };
+}
+
+function setAssigneeComplete(projectId, employeeId, completed) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
+
+  const progress = projectAssigneeProgress(project);
+  progress[employeeId] = Boolean(completed);
+  S.assigneeProgress[projectId] = progress;
+  saveAssigneeProgress();
+
+  const summary = assigneeProgressSummary(project);
+  const lifecycle = projectLifecycle(project);
+
+  // 担当者全員が完了したら、案件も自動で「製作完了」にする。
+  if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
+    setProjectLifecycle(projectId, 'production_complete');
+  }
+
+  // 誰か一人でも未完了へ戻したら、納品前の案件は「製作中」に戻す。
+  if (!completed && lifecycle.status !== 'in_progress') {
+    setProjectLifecycle(projectId, 'in_progress');
+  }
+
+  return true;
+}
+
+function assigneeProgressHtml(project, effect = '') {
+  const { progress, total, completed } = assigneeProgressSummary(project);
+  if (!total) return '<p class="muted">担当者が設定されていません。</p>';
+  return `<section class="assignee-progress ${esc(effect)}" aria-labelledby="assigneeProgressHeading">
+    <div class="assignee-progress-heading">
+      <h3 id="assigneeProgressHeading">担当者ごとの完了</h3>
+      <strong>${completed} / ${total} 完了</strong>
+    </div>
+    <div class="assignee-progress-list">
+      ${projectEmployeeIds(project).map(id => `<label class="assignee-progress-item ${progress[id] ? 'is-complete' : ''}" style="${employeeColorStyle(id)}">
+        <input type="checkbox" data-assignee-complete data-project-id="${esc(project.id)}" value="${esc(id)}" ${progress[id] ? 'checked' : ''}>
+        <span class="assignee-progress-check" aria-hidden="true"></span>
+        <span class="assignee-progress-name">${esc(employeeName(id))}</span>
+        <small>${progress[id] ? '完了' : '未完了'}</small>
+      </label>`).join('')}
+    </div>
+    <p class="assignee-progress-note">チェック状態は、この端末のブラウザに保存されます。</p>
+  </section>`;
+}
+
+function lifecycleDetailHtml(project, effect = '') {
+  const lifecycle = projectLifecycle(project);
+  const productionMeta = lifecycle.productionCompletedAt
+    ? `<small>製作完了：${esc(jpDateTime(lifecycle.productionCompletedAt))}${lifecycle.productionCompletedBy ? ` ／ ${esc(lifecycle.productionCompletedBy)}` : ''}</small>`
+    : '';
+  const deliveryMeta = lifecycle.deliveredAt
+    ? `<small>納品完了：${esc(jpDateTime(lifecycle.deliveredAt))}${lifecycle.deliveredBy ? ` ／ ${esc(lifecycle.deliveredBy)}` : ''}</small>`
+    : '';
+
+  let actions = '';
+  if (lifecycle.status === 'production_complete') {
+    actions = `<button type="button" class="delivery-complete-button" data-lifecycle="delivered" data-project-id="${esc(project.id)}">納品完了にする</button>`;
+  } else if (lifecycle.status === 'delivered') {
+    actions = `<button type="button" class="secondary" data-lifecycle="production_complete" data-project-id="${esc(project.id)}">納品完了を取り消す</button>`;
+  }
+
+  const productionDone = lifecycle.status === 'production_complete' || lifecycle.status === 'delivered';
+  const delivered = lifecycle.status === 'delivered';
+
+  return `<section class="project-lifecycle ${esc(effect)}">
+    <div class="project-lifecycle-heading">
+      <div><h3>案件ステータス</h3><p>担当者全員の完了で製作完了へ自動更新され、納品完了のみここで操作します。</p></div>
+      ${lifecycleBadgeHtml(project)}
+    </div>
+    <div class="project-lifecycle-steps status-${esc(lifecycle.status)}" aria-label="案件の進捗">
+      <span class="is-done">受注</span><i></i>
+      <span class="${lifecycle.status === 'in_progress' ? 'is-current' : 'is-done'}">製作中</span><i></i>
+      <span class="${productionDone ? (delivered ? 'is-done' : 'is-done is-current') : ''}">製作完了</span><i></i>
+      <span class="${delivered ? 'is-done is-current' : ''}">納品完了</span>
+    </div>
+    <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
+    ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">最後の担当者が完了すると、自動で「製作完了」に切り替わります。</p>' : ''}
+    ${actions ? `<div class="project-lifecycle-actions">${actions}</div>` : ''}
+    <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
+  </section>`;
 }
 
 function actorPayload() {
@@ -247,8 +660,63 @@ function filtered() {
   ].join(' ').toLowerCase().includes(q));
 }
 
-function projectCard(project, employeeId) {
-  return `<button class="job ${project.completed ? 'done' : ''}" style="${employeeColorStyle(employeeId)}" data-detail="${esc(project.id)}"><b>${esc(project.shipNo || '—')}</b><span>${esc(project.displayName)}</span><small>${esc(project.productName)}</small></button>`;
+function projectGroupKey(project) {
+  return JSON.stringify([
+    String(project.shipNo || '').trim(),
+    String(project.displayName || '').trim(),
+    String(project.client || '').trim()
+  ]);
+}
+
+function groupProjects(projects = filtered()) {
+  const map = new Map();
+  projects.forEach(project => {
+    const key = projectGroupKey(project);
+    if (!map.has(key)) map.set(key, { key, projects: [] });
+    map.get(key).projects.push(project);
+  });
+  return [...map.values()].map(group => {
+    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.productName).localeCompare(String(b.productName), 'ja'));
+    group.representative = group.projects[0];
+    group.employeeIds = [...new Set(group.projects.flatMap(projectEmployeeIds))];
+    group.dueDates = [...new Set(group.projects.map(project => project.dueDate).filter(Boolean))].sort();
+    return group;
+  });
+}
+
+function projectGroup(projectOrId) {
+  const project = typeof projectOrId === 'string' ? S.projects.find(item => item.id === projectOrId) : projectOrId;
+  if (!project) return null;
+  const key = projectGroupKey(project);
+  return groupProjects(S.projects).find(group => group.key === key) || null;
+}
+
+function groupLifecycleStatus(group) {
+  const statuses = group.projects.map(project => projectLifecycle(project).status);
+  if (statuses.length && statuses.every(status => status === 'delivered')) return 'delivered';
+  if (statuses.length && statuses.every(status => status === 'production_complete' || status === 'delivered')) return 'production_complete';
+  return 'in_progress';
+}
+
+function groupLifecycleBadgeHtml(group, compact = false) {
+  const status = groupLifecycleStatus(group);
+  return `<span class="project-status status-${esc(status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(status))}</span>`;
+}
+
+function groupDueLabel(group) {
+  if (!group.dueDates.length) return '納期未設定';
+  if (group.dueDates.length === 1) return jp(group.dueDates[0]);
+  return `${jp(group.dueDates[0])}〜${jp(group.dueDates[group.dueDates.length - 1])}`;
+}
+
+function groupEmployeeNames(group) {
+  return group.employeeIds.map(employeeName).filter(Boolean).join('・') || '未設定';
+}
+
+function groupCard(group, employeeId) {
+  const project = group.representative;
+  const status = groupLifecycleStatus(group);
+  return `<button class="job group-job lifecycle-${esc(status)}" style="${employeeColorStyle(employeeId)}" data-group-detail="${esc(project.id)}"><span class="job-topline"><b>${esc(project.shipNo || '—')}</b>${groupLifecycleBadgeHtml(group, true)}</span><span>${esc(project.displayName || '—')}</span><small>${group.projects.length}明細${group.dueDates.length > 1 ? ` ／ ${esc(groupDueLabel(group))}` : ''}</small></button>`;
 }
 
 function renderSchedule() {
@@ -258,11 +726,12 @@ function renderSchedule() {
   const employees = ordered('employees').filter(item => item.active !== false);
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
+  const groups = groupProjects(filtered());
   let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
     html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
-      const cards = filtered().filter(project => project.dueDate === date && projectEmployeeIds(project).includes(item.id)).map(project => projectCard(project, item.id)).join('');
+      const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
     }).join('') + '</tr>';
   }
@@ -284,19 +753,60 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
 }
 
 function renderDeadlines() {
-  const list = filtered().slice().sort((a, b) => Number(a.completed) - Number(b.completed) || String(a.dueDate).localeCompare(String(b.dueDate)));
-  const count = S.selectedProjectIds.size;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件を削除</button></div>`;
-  const items = list.length ? list.map(project => `
-    <article class="deadline ${project.completed ? 'done' : ''}">
-      <input type="checkbox" class="project-select" data-select-project="${esc(project.id)}" ${S.selectedProjectIds.has(project.id) ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <button type="button" data-toggle="${esc(project.id)}" class="check">${project.completed ? '✓' : ''}</button>
-      <div><time>${esc(jp(project.dueDate))}</time><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
-      <button type="button" data-edit="${esc(project.id)}">編集</button>
-      <button type="button" data-delete="${esc(project.id)}">削除</button>
-    </article>
-  `).join('') : '<div class="notice">案件はありません。</div>';
+  const statusOrder = { in_progress: 0, production_complete: 1, delivered: 2 };
+  const groups = groupProjects(filtered()).sort((a, b) => statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] || String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || '')));
+  const selectedGroups = groups.filter(group => group.projects.every(project => S.selectedProjectIds.has(project.id)));
+  const count = selectedGroups.length;
+  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}案件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}案件をごみ箱へ</button></div>`;
+  const items = groups.length ? groups.map(group => {
+    const project = group.representative;
+    const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
+    const products = group.projects.slice(0, 3).map(item => item.productName || '製品名未設定').join('・');
+    const more = group.projects.length > 3 ? ` ほか${group.projects.length - 3}件` : '';
+    return `<article class="deadline grouped-deadline lifecycle-${esc(groupLifecycleStatus(group))}">
+      <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
+      <button type="button" data-group-detail="${esc(project.id)}" class="check group-count-check" aria-label="案件詳細を開く">${group.projects.length}</button>
+      <div><div class="deadline-heading"><time>${esc(groupDueLabel(group))}</time>${groupLifecycleBadgeHtml(group, true)}</div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h3><p><strong>${group.projects.length}明細</strong> ／ ${esc(products)}${esc(more)} ／ ${esc(groupEmployeeNames(group))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
+      <button type="button" data-group-detail="${esc(project.id)}">詳細</button>
+      <button type="button" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
+    </article>`;
+  }).join('') : '<div class="notice">案件はありません。</div>';
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
+}
+
+
+function renderTrash() {
+  const host = $('trashList');
+  if (!host) return;
+  updateTrashCount();
+  if (!S.trash.length) {
+    host.innerHTML = '<div class="notice trash-empty"><strong>ごみ箱は空です。</strong><span>削除した案件はここから復元できます。</span></div>';
+    const emptyButton = $('emptyTrash');
+    if (emptyButton) emptyButton.disabled = true;
+    return;
+  }
+  const emptyButton = $('emptyTrash');
+  if (emptyButton) emptyButton.disabled = false;
+  host.innerHTML = S.trash.map(entry => {
+    const project = entry.project;
+    const names = projectEmployeeIds(project).map(employeeName).join('・') || '未設定';
+    return `<article class="trash-item">
+      <div class="trash-item-main">
+        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong><span>${esc(project.productName || '—')}</span></div>
+        <dl>
+          <div><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd></div>
+          <div><dt>担当者</dt><dd>${esc(names)}</dd></div>
+          <div><dt>状態</dt><dd>${entry.lifecycle ? esc(lifecycleLabel(entry.lifecycle.status)) : '製作中'}</dd></div>
+          <div><dt>削除日時</dt><dd>${esc(jpDateTime(entry.deletedAt))}</dd></div>
+          <div><dt>削除した人</dt><dd>${esc(entry.deletedBy || '未設定')}</dd></div>
+        </dl>
+      </div>
+      <div class="trash-item-actions">
+        <button type="button" class="primary" data-trash-restore="${esc(entry.trashId)}">復元</button>
+        <button type="button" class="danger" data-trash-delete="${esc(entry.trashId)}">完全削除</button>
+      </div>
+    </article>`;
+  }).join('');
 }
 
 const masterLabels = { clients: '得意先', displayNames: '部門', products: '製作加工', employees: '職員' };
@@ -315,6 +825,7 @@ function render() {
   renderSchedule();
   renderDeadlines();
   renderMasters();
+  renderTrash();
   fillSelects();
 }
 
@@ -335,10 +846,44 @@ async function load({ silent = false } = {}) {
   }
 }
 
-function openDetail(id) {
+function openGroupDetail(id) {
+  const group = projectGroup(id);
+  if (!group) return toast('案件が見つかりません。');
+  const project = group.representative;
+  const lineItems = group.projects.map((item, index) => `
+    <article class="group-detail-line lifecycle-${esc(projectLifecycle(item).status)}">
+      <div class="group-detail-line-number">${index + 1}</div>
+      <div class="group-detail-line-main">
+        <div class="group-detail-line-heading"><h3>${esc(item.productName || '製品名未設定')}</h3>${lifecycleBadgeHtml(item, true)}</div>
+        <dl>
+          <div><dt>数量</dt><dd>${item.quantity ? esc(item.quantity) : '—'}</dd></div>
+          <div><dt>納期</dt><dd>${esc(jp(item.dueDate))}</dd></div>
+          <div><dt>担当者</dt><dd>${esc(employeeNames(item))}</dd></div>
+          <div><dt>仕様</dt><dd>${esc(item.spec || '—')}</dd></div>
+        </dl>
+      </div>
+      <div class="group-detail-line-actions">
+        <button type="button" class="secondary" data-detail="${esc(item.id)}">明細詳細</button>
+        <button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
+        <button type="button" class="danger ghost-danger" data-request-delete="${esc(item.id)}">ごみ箱へ</button>
+      </div>
+    </article>`).join('');
+  $('detailBody').innerHTML = `<header><div><p class="dialog-eyebrow">案件単位表示</p><h2>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h2></div><button type="button" data-close>×</button></header>
+    <section class="group-detail-summary">
+      <dl><div><dt>得意先</dt><dd>${esc(project.client || '—')}</dd></div><div><dt>明細数</dt><dd>${group.projects.length}件</dd></div><div><dt>納期</dt><dd>${esc(groupDueLabel(group))}</dd></div><div><dt>担当者</dt><dd>${esc(groupEmployeeNames(group))}</dd></div></dl>
+      ${groupLifecycleBadgeHtml(group)}
+    </section>
+    <section class="group-detail-lines"><div class="group-detail-section-heading"><h3>製作明細</h3><span>${group.projects.length}件</span></div>${lineItems}</section>
+    <footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button></footer>`;
+  $('detailDialog').showModal();
+}
+
+function openDetail(id, effect = '') {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl><footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">削除</button></div></footer>`;
+  const group = projectGroup(project);
+  const backButton = group && group.projects.length > 1 ? `<button type="button" class="detail-back-button" data-group-detail="${esc(project.id)}">← 案件明細一覧へ</button>` : '';
+  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -370,13 +915,15 @@ function requestDelete(id) {
 
 async function confirmDelete() {
   if (!S.pendingDeleteId) return;
+  const project = S.projects.find(item => item.id === S.pendingDeleteId);
+  if (!project) return toast('案件が見つかりません。');
   try {
-    await api(`${API.projects}?id=${encodeURIComponent(S.pendingDeleteId)}`, { method: 'DELETE', body: actorPayload() });
+    await moveProjectToTrash(project);
     S.selectedProjectIds.delete(S.pendingDeleteId);
     S.pendingDeleteId = '';
     $('deleteDialog').close();
     await load();
-    toast('案件を削除しました');
+    toast('案件をごみ箱へ移動しました');
   } catch (error) { toast(error.message); }
 }
 
@@ -577,21 +1124,106 @@ async function bulkDeleteSelectedProjects() {
 async function confirmBulkDelete() {
   const ids = [...S.selectedProjectIds];
   if (!ids.length) return;
+
+  // 削除前の完全なスナップショットを保持する。
+  const targetMap = new Map(S.projects.map(project => [project.id, project]));
+  const targets = ids.map(id => targetMap.get(id)).filter(Boolean);
+  if (!targets.length) return toast('削除対象が見つかりません。');
+
+  const confirmButton = $('confirmBulkDelete');
+  const originalLabel = confirmButton?.textContent || 'ごみ箱へ移動';
+  if (confirmButton) {
+    confirmButton.disabled = true;
+    confirmButton.textContent = `${targets.length}件を一括移動中…`;
+  }
+
   try {
-    await api(API.projects, { method: 'DELETE', body: { ids, ...actorPayload() } });
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    await load();
-    toast(`${ids.length}件の案件を削除しました。`);
-  } catch (error) {
-    let deleted = 0;
-    for (const id of ids) {
-      try { await api(`${API.projects}?id=${encodeURIComponent(id)}`, { method: 'DELETE', body: actorPayload() }); deleted++; } catch {}
+    // Phase2.1: APIが元々備えている一括削除を1回だけ呼ぶ。
+    // 複数DELETEの並列実行は、サーバー側の同時書き込み競合で削除が巻き戻るため使用しない。
+    await api(API.projects, {
+      method: 'DELETE',
+      body: { ids: targets.map(project => project.id), ...actorPayload() }
+    });
+
+    // サーバーの確定状態を1回だけ読み直し、実際に消えた案件だけをごみ箱へ登録する。
+    await load({ silent: true });
+    let remainingIds = new Set(S.projects.map(project => project.id));
+    let failed = targets.filter(project => remainingIds.has(project.id));
+
+    // 一括APIが一部だけ処理した場合に限り、残りを直列で補完する。
+    // 並列にはしないため、データ競合は起こさない。
+    if (failed.length) {
+      if (confirmButton) confirmButton.textContent = `残り${failed.length}件を確認中…`;
+      for (const project of failed) {
+        try {
+          await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
+            method: 'DELETE',
+            body: actorPayload()
+          });
+        } catch {
+          // 最後の再取得で実際の状態を判定する。
+        }
+      }
+      await load({ silent: true });
+      remainingIds = new Set(S.projects.map(project => project.id));
+      failed = targets.filter(project => remainingIds.has(project.id));
     }
+
+    const actuallyMoved = targets.filter(project => !remainingIds.has(project.id));
+    if (actuallyMoved.length) {
+      addProjectsToTrash(actuallyMoved);
+      for (const project of actuallyMoved) {
+        delete S.assigneeProgress[project.id];
+        delete S.projectLifecycle[project.id];
+      }
+      saveAssigneeProgress();
+      saveProjectLifecycle();
+    }
+
     S.selectedProjectIds.clear();
     $('bulkDeleteDialog').close();
-    await load();
-    toast(`${deleted}件の案件を削除しました。`);
+    render();
+
+    toast(failed.length
+      ? `${actuallyMoved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
+      : `${actuallyMoved.length}件を一括でごみ箱へ移動しました`);
+  } catch (error) {
+    // 一括API自体が利用できない環境では、安全な直列処理へ切り替える。
+    let moved = [];
+    for (const project of targets) {
+      try {
+        await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
+          method: 'DELETE',
+          body: actorPayload()
+        });
+      } catch {}
+    }
+    await load({ silent: true });
+    const remainingIds = new Set(S.projects.map(project => project.id));
+    moved = targets.filter(project => !remainingIds.has(project.id));
+    const failed = targets.filter(project => remainingIds.has(project.id));
+
+    if (moved.length) {
+      addProjectsToTrash(moved);
+      for (const project of moved) {
+        delete S.assigneeProgress[project.id];
+        delete S.projectLifecycle[project.id];
+      }
+      saveAssigneeProgress();
+      saveProjectLifecycle();
+    }
+
+    S.selectedProjectIds.clear();
+    $('bulkDeleteDialog').close();
+    render();
+    toast(failed.length
+      ? `${moved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
+      : `${moved.length}件をごみ箱へ移動しました`);
+  } finally {
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = originalLabel;
+    }
   }
 }
 
@@ -734,6 +1366,34 @@ function bindFixedEvents() {
 
 function bindDelegatedEvents() {
   document.body.addEventListener('change', event => {
+    const progressCheckbox = event.target.closest('[data-assignee-complete]');
+    if (progressCheckbox) {
+      const projectId = progressCheckbox.dataset.projectId;
+      const employeeId = progressCheckbox.value;
+      const project = S.projects.find(item => item.id === projectId);
+      const beforeStatus = project ? projectLifecycle(project).status : 'in_progress';
+      if (setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
+        const afterStatus = project ? projectLifecycle(project).status : beforeStatus;
+        const effect = beforeStatus !== afterStatus && afterStatus === 'production_complete'
+          ? 'celebrate-production'
+          : 'progress-updated';
+        openDetail(projectId, effect);
+        toast(beforeStatus !== afterStatus && afterStatus === 'production_complete'
+          ? '担当者全員が完了し、製作完了になりました'
+          : progressCheckbox.checked
+            ? `${employeeName(employeeId)}さんを完了にしました`
+            : `${employeeName(employeeId)}さんを未完了に戻しました`);
+      }
+      return;
+    }
+
+    const groupCheckbox = event.target.closest('[data-select-group]');
+    if (groupCheckbox) {
+      const group = projectGroup(groupCheckbox.dataset.selectGroup);
+      if (group) group.projects.forEach(project => groupCheckbox.checked ? S.selectedProjectIds.add(project.id) : S.selectedProjectIds.delete(project.id));
+      renderDeadlines();
+      return;
+    }
     const checkbox = event.target.closest('[data-select-project]');
     if (!checkbox) return;
     checkbox.checked ? S.selectedProjectIds.add(checkbox.dataset.selectProject) : S.selectedProjectIds.delete(checkbox.dataset.selectProject);
@@ -762,6 +1422,15 @@ function bindDelegatedEvents() {
       else if (button.id === 'importExcel') openImport();
       else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
       else if (button.dataset.edit) openProject(button.dataset.edit);
+      else if (button.dataset.groupDetail) openGroupDetail(button.dataset.groupDetail);
+      else if (button.dataset.groupDelete) {
+        const group = projectGroup(button.dataset.groupDelete);
+        if (group) {
+          S.selectedProjectIds.clear();
+          group.projects.forEach(project => S.selectedProjectIds.add(project.id));
+          await bulkDeleteSelectedProjects();
+        }
+      }
       else if (button.dataset.detail) openDetail(button.dataset.detail);
       else if (button.dataset.detailEdit) { $('detailDialog').close(); openProject(button.dataset.detailEdit); }
       else if (button.dataset.requestDelete) requestDelete(button.dataset.requestDelete);
@@ -771,15 +1440,40 @@ function bindDelegatedEvents() {
       else if (button.id === 'clearProjectSelection') { S.selectedProjectIds.clear(); renderDeadlines(); }
       else if (button.id === 'bulkDeleteProjects') await bulkDeleteSelectedProjects();
       else if (button.id === 'confirmBulkDelete') await confirmBulkDelete();
+      else if (button.dataset.trashRestore) await restoreTrashEntry(button.dataset.trashRestore);
+      else if (button.dataset.trashDelete) await permanentlyDeleteTrashEntry(button.dataset.trashDelete);
+      else if (button.id === 'emptyTrash') await emptyTrash();
+      else if (button.dataset.lifecycle) {
+        const projectId = button.dataset.projectId;
+        const targetStatus = button.dataset.lifecycle;
+        const project = S.projects.find(item => item.id === projectId);
+        const label = `${project?.shipNo || ''} ${project?.displayName || ''}`.trim();
+        const settings = targetStatus === 'delivered'
+          ? { title: '納品完了にしますか？', message: 'この案件を納品済みとして記録します。', detail: label, note: '納品完了はあとから取り消せます。', confirmText: '納品完了にする', tone: 'primary', icon: '✓' }
+          : { title: `${lifecycleLabel(targetStatus)}に変更しますか？`, message: '案件ステータスを変更します。', detail: label, note: '変更後も必要に応じて戻せます。', confirmText: '変更する', tone: 'warning', icon: '↶' };
+        const approved = await portalConfirm(settings);
+        if (approved && setProjectLifecycle(projectId, targetStatus)) {
+          openDetail(projectId, targetStatus === 'delivered' ? 'celebrate-delivery' : 'status-updated');
+          toast(`${lifecycleLabel(targetStatus)}に変更しました`);
+        }
+      }
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
-      else if (button.dataset.materialDelete && confirm('この材料を削除しますか？')) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+      else if (button.dataset.materialDelete) {
+        const item = S.materials.find(x => x.id === button.dataset.materialDelete);
+        const approved = await portalConfirm({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する', tone: 'danger', icon: '！' });
+        if (approved) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+      }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
       else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
       else if (button.dataset.move) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.id, action: 'move', direction: button.dataset.move } }); await load(); }
-      else if (button.dataset.mdelete && confirm('この項目を削除しますか？')) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
+      else if (button.dataset.mdelete) {
+        const item = S.masters[button.dataset.type]?.find(x => x.id === button.dataset.mdelete);
+        const approved = await portalConfirm({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する', tone: 'danger', icon: '！' });
+        if (approved) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
+      }
     } catch (error) { toast(error.message); }
   });
 }
@@ -877,6 +1571,9 @@ function bindCalculatorEvents() {
 async function init() {
   ensureActorUi();
   loadMaterials();
+  loadAssigneeProgress();
+  loadTrash();
+  loadProjectLifecycle();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();

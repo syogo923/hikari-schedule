@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver2.7.1</title>
+  <title>光ポータル Ver2.9.0 Phase2.1</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=2.7.1">
+  <link rel="stylesheet" href="/style.css?v=2.9.0-phase2-1">
 </head>
 
 <body>
@@ -120,6 +120,15 @@
 
     <button
       type="button"
+      class="nav trash-nav"
+      data-view="trash"
+    >
+      ごみ箱
+      <span id="trashCount" class="nav-count" hidden>0</span>
+    </button>
+
+    <button
+      type="button"
       class="nav"
       data-view="history"
     >
@@ -222,7 +231,7 @@
         <div>
           <h2>納期一覧</h2>
           <p class="muted">
-            案件の完了・編集・削除を管理します。
+            案件の製作・納品状況、編集、削除を管理します。
           </p>
         </div>
 
@@ -238,6 +247,18 @@
 
       <div id="deadlineList"></div>
 
+    </section>
+
+    <!-- ごみ箱 -->
+    <section id="trashView" class="view">
+      <div class="section-head">
+        <div>
+          <h2>ごみ箱</h2>
+          <p class="muted">削除した案件を復元できます。ごみ箱の内容は、この端末のブラウザに保存されます。</p>
+        </div>
+        <button id="emptyTrash" type="button" class="danger" disabled>ごみ箱を空にする</button>
+      </div>
+      <div id="trashList" class="trash-list"></div>
     </section>
 
     <!-- 更新履歴 -->
@@ -812,7 +833,7 @@
 
       <header>
 
-        <h2>案件を削除</h2>
+        <h2>案件をごみ箱へ移動</h2>
 
         <button
           type="button"
@@ -825,7 +846,7 @@
       </header>
 
       <p>
-        この案件を削除しますか？
+        この案件をごみ箱へ移動しますか？
       </p>
 
       <p
@@ -833,8 +854,8 @@
         class="delete-target"
       ></p>
 
-      <p class="error">
-        この操作は元に戻せません。
+      <p class="muted">
+        ごみ箱から復元できます。
       </p>
 
       <footer>
@@ -852,7 +873,7 @@
           id="confirmDelete"
           class="danger"
         >
-          削除する
+          ごみ箱へ移動
         </button>
 
       </footer>
@@ -871,7 +892,7 @@
 
       <header>
 
-        <h2>選択した案件を削除</h2>
+        <h2>選択した案件をごみ箱へ移動</h2>
 
         <button
           type="button"
@@ -884,7 +905,7 @@
       </header>
 
       <p>
-        選択した案件をまとめて削除しますか？
+        選択した案件をまとめてごみ箱へ移動しますか？
       </p>
 
       <p
@@ -892,8 +913,8 @@
         class="delete-target"
       ></p>
 
-      <p class="error">
-        この操作は元に戻せません。
+      <p class="muted">
+        ごみ箱から復元できます。
       </p>
 
       <footer>
@@ -911,13 +932,37 @@
           id="confirmBulkDelete"
           class="danger"
         >
-          まとめて削除する
+          まとめて移動
         </button>
 
       </footer>
 
     </div>
 
+  </dialog>
+
+
+  <!-- 共通確認ダイアログ -->
+  <dialog
+    id="portalConfirmDialog"
+    class="portal-confirm-dialog"
+    aria-labelledby="portalConfirmTitle"
+  >
+    <div class="portal-confirm-panel">
+      <div id="portalConfirmIcon" class="portal-confirm-icon" aria-hidden="true">✓</div>
+
+      <div class="portal-confirm-copy">
+        <h2 id="portalConfirmTitle">確認</h2>
+        <p id="portalConfirmMessage"></p>
+        <p id="portalConfirmDetail" class="portal-confirm-detail" hidden></p>
+        <p id="portalConfirmNote" class="portal-confirm-note" hidden></p>
+      </div>
+
+      <footer>
+        <button type="button" id="portalConfirmCancel" class="secondary">キャンセル</button>
+        <button type="button" id="portalConfirmOk" class="primary">実行する</button>
+      </footer>
+    </div>
   </dialog>
 
   <!-- トースト通知 -->
@@ -928,7 +973,7 @@
   ></div>
 
   <script
-    src="/app.js?v=2.7.1"
+    src="/app.js?v=2.9.0-phase2-1"
     defer
   ></script>
 
