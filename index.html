@@ -1,1066 +1,936 @@
-:root{
-  font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;
-  color:#172033;
-  background:#f3f5f8;
-}
-
-*{
-  box-sizing:border-box;
-}
-
-body{
-  margin:0;
-}
-
-button{
-  font:inherit;
-  cursor:pointer;
-}
-
-/* ヘッダー */
-
-.topbar{
-  background:#0d1b3d;
-  color:#fff;
-  padding:14px 22px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
-
-.brand{
-  display:flex;
-  gap:12px;
-  align-items:center;
-}
-
-.brand img{
-  width:46px;
-  height:46px;
-  border-radius:10px;
-}
-
-.brand h1,
-.brand p{
-  margin:0;
-}
-
-.brand p{
-  opacity:.75;
-  font-size:13px;
-}
-
-/* ナビゲーション */
-
-nav{
-  display:flex;
-  background:#fff;
-  border-bottom:1px solid #dfe4ec;
-  padding:0 18px;
-}
-
-.nav{
-  border:0;
-  background:none;
-  padding:15px 20px;
-  font-weight:700;
-  color:#637087;
-}
-
-.nav.active{
-  color:#0d1b3d;
-  border-bottom:3px solid #0d1b3d;
-}
-
-/* 共通レイアウト */
-
-main{
-  padding:20px;
-}
-
-.view{
-  display:none;
-}
-
-.view.active{
-  display:block;
-}
-
-.toolbar,
-.section-head{
-  display:flex;
-  gap:12px;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:16px;
-}
-
-.toolbar input{
-  width:min(520px,45vw);
-  padding:11px;
-  border:1px solid #cbd3df;
-  border-radius:9px;
-}
-
-.toolbar-actions{
-  display:flex;
-  gap:8px;
-}
-
-.toolbar-actions button{
-  white-space:nowrap;
-}
-
-/* ボタン */
-
-.primary{
-  background:#0d1b3d;
-  color:#fff;
-  border:0;
-  border-radius:8px;
-  padding:10px 15px;
-  font-weight:700;
-}
-
-.secondary{
-  background:#fff;
-  color:#0d1b3d;
-  border:1px solid #cbd3df;
-  border-radius:8px;
-  padding:9px 14px;
-}
-
-.danger{
-  background:#b42318;
-  color:#fff;
-  border:0;
-  border-radius:8px;
-  padding:10px 15px;
-  font-weight:700;
-}
-
-button:disabled{
-  cursor:not-allowed;
-  opacity:.45;
-}
-
-/* スケジュール */
-
-.schedule-wrap{
-  overflow:auto;
-  background:#fff;
-  border-radius:12px;
-  border:1px solid #dfe4ec;
-  max-height:72vh;
-}
-
-table{
-  border-collapse:collapse;
-  width:max-content;
-  min-width:100%;
-}
-
-th,
-td{
-  border:1px solid #e3e7ee;
-  vertical-align:top;
-  min-width:190px;
-  padding:8px;
-}
-
-thead th{
-  position:sticky;
-  top:0;
-  background:#eef2f8;
-  z-index:2;
-}
-
-.date-col,
-tbody th{
-  min-width:100px;
-  position:sticky;
-  left:0;
-  background:#f8fafc;
-  z-index:1;
-}
-
-.job{
-  display:flex;
-  width:100%;
-  text-align:left;
-  flex-direction:column;
-  border:1px solid #b9c6da;
-  background:#fff;
-  border-left:5px solid #0d1b3d;
-  border-radius:8px;
-  padding:8px;
-  margin-bottom:7px;
-}
-
-.job b{
-  font-size:14px;
-}
-
-.job span{
-  font-weight:700;
-}
-
-.job small{
-  color:#5b6678;
-}
-
-.job.done{
-  opacity:.45;
-  text-decoration:line-through;
-}
-
-/* 納期一覧・選択ツールバー */
-
-.deadline-selection-toolbar{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  flex-wrap:wrap;
-  background:#fff;
-  border:1px solid #dfe4ec;
-  border-radius:10px;
-  padding:12px;
-  margin-bottom:12px;
-}
-
-.deadline-selection-toolbar strong{
-  margin-left:auto;
-  white-space:nowrap;
-}
-
-.deadline-selection-toolbar .danger{
-  white-space:nowrap;
-}
-
-/* 納期一覧の案件カード */
-
-.deadline{
-  background:#fff;
-  border:1px solid #dfe4ec;
-  border-radius:10px;
-  padding:13px;
-  margin:9px 0;
-  display:grid;
-  grid-template-columns:34px 42px minmax(0,1fr) auto auto;
-  gap:12px;
-  align-items:center;
-}
-
-.deadline h3,
-.deadline p{
-  margin:3px 0;
-}
-
-.deadline h3{
-  overflow-wrap:anywhere;
-}
-
-.deadline p{
-  color:#5b6678;
-  overflow-wrap:anywhere;
-}
-
-.deadline time{
-  font-weight:700;
-  color:#0d1b3d;
-}
-
-.deadline.done{
-  opacity:.5;
-}
-
-.project-select{
-  width:20px;
-  height:20px;
-  margin:0;
-  justify-self:center;
-  cursor:pointer;
-  accent-color:#0d1b3d;
-}
-
-.check{
-  width:30px;
-  height:30px;
-  padding:0;
-  border-radius:50%;
-  border:2px solid #0d1b3d;
-  background:#fff;
-  color:#0d1b3d;
-  font-weight:700;
-  justify-self:center;
-}
-
-.deadline>button{
-  white-space:nowrap;
-}
-
-.deadline>button[data-edit]{
-  background:#fff;
-  color:#0d1b3d;
-  border:1px solid #cbd3df;
-  border-radius:8px;
-  padding:9px 13px;
-  font-weight:700;
-}
-
-.deadline>button[data-delete]{
-  background:#fff;
-  color:#b42318;
-  border:1px solid #e0a39e;
-  border-radius:8px;
-  padding:9px 13px;
-  font-weight:700;
-}
-
-.deadline>button[data-edit]:hover{
-  background:#eef2f8;
-}
-
-.deadline>button[data-delete]:hover{
-  background:#fff1f0;
-}
-
-/* マスタ管理 */
-
-.master-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
-  gap:16px;
-}
-
-.master-card{
-  background:#fff;
-  padding:16px;
-  border:1px solid #dfe4ec;
-  border-radius:12px;
-}
-
-.master-card form{
-  display:flex;
-  gap:8px;
-}
-
-.master-card input{
-  min-width:0;
-  flex:1;
-  padding:9px;
-  border:1px solid #cbd3df;
-  border-radius:7px;
-}
-
-.master-item{
-  display:flex;
-  justify-content:space-between;
-  padding:9px 0;
-  border-bottom:1px solid #eee;
-}
-
-.master-actions{
-  display:flex;
-  gap:4px;
-  flex-wrap:wrap;
-  justify-content:flex-end;
-}
-
-.master-actions button{
-  font-size:12px;
-  padding:5px 7px;
-  border:1px solid #cbd3df;
-  background:#fff;
-  border-radius:6px;
-}
-
-.master-item.inactive span{
-  opacity:.45;
-  text-decoration:line-through;
-}
-
-/* メッセージ */
-
-.muted,
-.notice{
-  color:#667085;
-}
-
-.notice{
-  background:#fff5d7;
-  padding:12px;
-  border-radius:8px;
-  margin:8px 0;
-}
-
-.error{
-  color:#b42318;
-}
-
-/* ダイアログ */
-
-dialog{
-  border:0;
-  border-radius:14px;
-  width:min(520px,92vw);
-  box-shadow:0 20px 60px #0004;
-}
-
-dialog::backdrop{
-  background:#0b122099;
-}
-
-dialog form{
-  display:grid;
-  gap:12px;
-}
-
-dialog header,
-dialog footer{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-}
-
-dialog header button{
-  border:0;
-  background:none;
-  font-size:26px;
-}
-
-label{
-  display:grid;
-  gap:5px;
-  font-weight:700;
-}
-
-input,
-select,
-textarea{
-  font:inherit;
-  padding:10px;
-  border:1px solid #cbd3df;
-  border-radius:8px;
-}
-
-.detail-actions{
-  margin-top:20px;
-  gap:12px;
-}
-
-.detail-actions>div{
-  display:flex;
-  gap:8px;
-}
-
-.confirm-dialog{
-  width:min(440px,92vw);
-}
-
-.confirm-dialog h2,
-.confirm-dialog p{
-  margin-top:0;
-}
-
-.delete-target{
-  padding:12px;
-  background:#f3f5f8;
-  border-radius:8px;
-  font-weight:700;
-}
-
-.confirm-dialog footer{
-  margin-top:20px;
-}
-
-dl{
-  display:grid;
-  grid-template-columns:90px 1fr;
-  gap:10px;
-}
-
-dt{
-  font-weight:700;
-  color:#667085;
-}
-
-dd{
-  margin:0;
-}
-
-/* Excel取込 */
-
-.wide-dialog{
-  width:min(1180px,96vw);
-}
-
-.wide-dialog form{
-  display:block;
-}
-
-.wide-dialog header{
-  margin-bottom:16px;
-}
-
-.wide-dialog header h2,
-.wide-dialog header p{
-  margin:0;
-}
-
-.file-drop{
-  border:2px dashed #b9c6da;
-  border-radius:12px;
-  padding:28px;
-  text-align:center;
-  background:#f8fafc;
-  cursor:pointer;
-}
-
-.file-drop input{
-  display:block;
-  margin:0 auto 12px;
-}
-
-.import-common{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-  gap:10px;
-}
-
-.import-tools{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin:14px 0;
-}
-
-.import-table-wrap{
-  overflow:auto;
-  max-height:54vh;
-  border:1px solid #dfe4ec;
-  border-radius:10px;
-}
-
-.import-table{
-  width:100%;
-  min-width:980px;
-}
-
-.import-table th{
-  min-width:auto;
-  position:sticky;
-  top:0;
-  background:#eef2f8;
-}
-
-.import-table td{
-  min-width:auto;
-  vertical-align:middle;
-}
-
-.import-table th:nth-child(1),
-.import-table td:nth-child(1){
-  width:55px;
-  min-width:55px;
-  text-align:center;
-}
-
-.import-table th:nth-child(2),
-.import-table td:nth-child(2){
-  width:280px;
-  min-width:280px;
-}
-
-.import-table th:nth-child(3){
-  width:85px;
-}
-
-.import-table th:nth-child(4){
-  width:310px;
-}
-
-.import-table th:nth-child(5){
-  width:170px;
-}
-
-.import-table th:nth-child(6){
-  width:155px;
-}
-
-.import-table input,
-.import-table select,
-.import-table textarea{
-  width:100%;
-}
-
-.import-table .import-select{
-  width:auto;
-}
-
-.wide-dialog footer{
-  margin-top:14px;
-}
-
-/* トースト通知 */
-
-#toast{
-  position:fixed;
-  right:20px;
-  bottom:20px;
-  background:#172033;
-  color:#fff;
-  padding:12px 18px;
-  border-radius:8px;
-  opacity:0;
-  transform:translateY(15px);
-  transition:.2s;
-  z-index:1000;
-}
-
-#toast.show{
-  opacity:1;
-  transform:none;
-}
-
-/* タブレット */
-
-@media(max-width:900px){
-
-  .toolbar-actions{
-    flex-wrap:wrap;
-  }
-
-  .import-common{
-    grid-template-columns:1fr 1fr;
-  }
-}
-
-/* スマートフォン */
-
-@media(max-width:700px){
-
-  main{
-    padding:10px;
-  }
-
-  .topbar{
-    padding:10px;
-  }
-
-  .brand p{
-    display:none;
-  }
-
-  nav{
-    padding:0 6px;
-    overflow-x:auto;
-  }
-
-  .nav{
-    padding:13px 14px;
-    white-space:nowrap;
-  }
-
-  .toolbar{
-    align-items:stretch;
-    flex-direction:column;
-  }
-
-  .toolbar input{
-    width:100%;
-  }
-
-  .toolbar-actions{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-  }
-
-  .toolbar-actions button{
-    width:100%;
-  }
-
-  .deadline-selection-toolbar{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-  }
-
-  .deadline-selection-toolbar strong{
-    margin-left:0;
-    text-align:center;
-  }
-
-  .deadline-selection-toolbar .danger{
-    width:100%;
-  }
-
-  .deadline{
-    grid-template-columns:32px 38px minmax(0,1fr);
-    gap:8px;
-    padding:11px;
-  }
-
-  .deadline>div{
-    min-width:0;
-  }
-
-  .deadline>button[data-edit],
-  .deadline>button[data-delete]{
-    grid-column:auto;
-    width:100%;
-    margin-top:3px;
-  }
-
-  .deadline>button[data-edit]{
-    grid-column:2;
-  }
-
-  .deadline>button[data-delete]{
-    grid-column:3;
-  }
-
-  .master-item{
-    align-items:flex-start;
-    gap:8px;
-  }
-
-  .master-actions{
-    max-width:170px;
-  }
-
-  .import-common{
-    grid-template-columns:1fr;
-  }
-
-  .import-tools{
-    align-items:stretch;
-    flex-direction:column;
-    gap:8px;
-  }
-
-  dialog footer{
-    gap:8px;
-    flex-wrap:wrap;
-  }
-
-  .detail-actions{
-    align-items:stretch;
-    flex-direction:column;
-  }
-
-  .detail-actions>div{
-    width:100%;
-  }
-
-  .detail-actions button{
-    flex:1;
-  }
-}
-
-/* =========================================================
-   光ポータル Ver2.5 追加スタイル
-   初回利用者選択・複数担当者・更新履歴・更新通知
-   ========================================================= */
-
-.topbar-actions{
-  display:flex;
-  align-items:center;
-  gap:10px;
-}
-
-.update-notice{
-  position:fixed;
-  top:16px;
-  left:50%;
-  transform:translateX(-50%);
-  z-index:1200;
-  width:min(680px,calc(100vw - 24px));
-  display:flex;
-  align-items:center;
-  gap:14px;
-  padding:12px 14px;
-  color:#172033;
-  background:#fff;
-  border:1px solid #b9c6da;
-  border-radius:12px;
-  box-shadow:0 14px 40px #0b122033;
-}
-
-.update-notice[hidden]{
-  display:none;
-}
-
-.update-notice-text{
-  min-width:0;
-  flex:1;
-  display:grid;
-  gap:2px;
-}
-
-.update-notice-text span{
-  color:#667085;
-  font-size:13px;
-}
-
-.update-notice-close{
-  width:34px;
-  height:34px;
-  padding:0;
-  border:0;
-  border-radius:50%;
-  background:#eef2f8;
-  color:#172033;
-  font-size:22px;
-  line-height:1;
-}
-
-.employee-fieldset{
-  margin:0;
-  padding:14px;
-  border:1px solid #d7deea;
-  border-radius:10px;
-  min-width:0;
-}
-
-.employee-fieldset legend{
-  padding:0 6px;
-  font-weight:800;
-}
-
-.required-mark{
-  margin-left:5px;
-  color:#b42318;
-  font-size:12px;
-}
-
-.field-help{
-  margin:0 0 10px;
-  color:#667085;
-  font-size:13px;
-}
-
-.employee-choices{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
-  gap:8px;
-}
-
-.employee-choices.compact{
-  grid-template-columns:repeat(auto-fit,minmax(105px,1fr));
-}
-
-.employee-choice{
-  display:block;
-  min-width:0;
-  font-weight:700;
-  cursor:pointer;
-}
-
-.employee-choice input{
-  position:absolute;
-  opacity:0;
-  pointer-events:none;
-}
-
-.employee-choice span{
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  min-height:42px;
-  padding:8px 10px;
-  border:2px solid hsl(var(--employee-hue) 36% 78%);
-  border-left:7px solid hsl(var(--employee-hue) 62% 43%);
-  border-radius:9px;
-  background:hsl(var(--employee-hue) 65% 97%);
-  color:#172033;
-  text-align:center;
-  overflow-wrap:anywhere;
-  transition:.15s ease;
-}
-
-.employee-choice input:checked+span{
-  border-color:hsl(var(--employee-hue) 65% 40%);
-  background:hsl(var(--employee-hue) 72% 91%);
-  box-shadow:0 0 0 2px hsl(var(--employee-hue) 65% 40% / .18);
-}
-
-.employee-choice input:focus-visible+span{
-  outline:3px solid #2563eb55;
-  outline-offset:2px;
-}
-
-.actor-dialog{
-  width:min(560px,92vw);
-}
-
-.actor-dialog form{
-  gap:16px;
-}
-
-.actor-dialog footer{
-  justify-content:flex-end;
-}
-
-.actor-dialog#actorDialog header{
-  justify-content:center;
-  text-align:center;
-}
-
-.actor-dialog#actorDialog footer .primary{
-  min-width:160px;
-}
-
-.job{
-  border-left-color:hsl(var(--employee-hue,215) 62% 43%);
-  background:linear-gradient(90deg,hsl(var(--employee-hue,215) 70% 96%),#fff 28%);
-}
-
-.deadline{
-  border-left:6px solid hsl(var(--employee-hue,215) 62% 43%);
-}
-
-.auto-assign-notice{
-  margin:12px 0;
-  padding:10px 12px;
-  border:1px solid #b7dfc4;
-  border-radius:9px;
-  background:#ecfdf3;
-  color:#176b3a;
-  font-weight:700;
-}
-
-.import-row-employees{
-  min-width:220px;
-}
-
-.history-toolbar{
-  display:grid;
-  grid-template-columns:minmax(150px,220px) minmax(150px,220px) minmax(220px,1fr);
-  gap:12px;
-  margin-bottom:14px;
-  padding:14px;
-  background:#fff;
-  border:1px solid #dfe4ec;
-  border-radius:10px;
-}
-
-.history-loading{
-  padding:14px;
-  color:#667085;
-}
-
-.history-item{
-  margin:10px 0;
-  border:1px solid #dfe4ec;
-  border-left:7px solid hsl(var(--employee-hue,215) 62% 43%);
-  border-radius:10px;
-  background:#fff;
-  overflow:hidden;
-}
-
-.history-item>button{
-  width:100%;
-  padding:14px 16px;
-  border:0;
-  background:linear-gradient(90deg,hsl(var(--employee-hue,215) 70% 96%),#fff 25%);
-  color:inherit;
-  text-align:left;
-}
-
-.history-item h3,
-.history-item p{
-  margin:4px 0;
-  overflow-wrap:anywhere;
-}
-
-.history-item p{
-  color:#667085;
-}
-
-.history-meta{
-  display:flex;
-  align-items:center;
-  flex-wrap:wrap;
-  gap:8px 12px;
-  color:#667085;
-  font-size:13px;
-}
-
-.history-meta strong{
-  color:#0d1b3d;
-}
-
-.history-actor{
-  padding:3px 8px;
-  border-radius:999px;
-  background:hsl(var(--employee-hue,215) 70% 92%);
-  color:hsl(var(--employee-hue,215) 55% 30%);
-  font-weight:800;
-}
-
-.history-detail-dialog{
-  width:min(920px,95vw);
-}
-
-.history-compare{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:14px;
-  margin-top:14px;
-}
-
-.history-compare section{
-  min-width:0;
-  padding:12px;
-  border:1px solid #dfe4ec;
-  border-radius:10px;
-  background:#f8fafc;
-}
-
-.history-compare h3{
-  margin-top:0;
-}
-
-.history-compare table{
-  width:100%;
-  min-width:0;
-  table-layout:fixed;
-}
-
-.history-compare th,
-.history-compare td{
-  min-width:0;
-  padding:7px;
-  overflow-wrap:anywhere;
-}
-
-.history-compare th{
-  width:34%;
-  background:#eef2f8;
-  text-align:left;
-}
-
-@media(max-width:700px){
-  .topbar-actions{
-    gap:6px;
-  }
-
-  .topbar-actions .secondary{
-    padding:8px 10px;
-  }
-
-  .update-notice{
-    top:8px;
-    align-items:flex-start;
-  }
-
-  .history-toolbar,
-  .history-compare{
-    grid-template-columns:1fr;
-  }
-
-  .employee-choices,
-  .employee-choices.compact{
-    grid-template-columns:1fr 1fr;
-  }
-}
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  >
+  <meta name="theme-color" content="#0d1b3d">
+
+  <title>光ポータル Ver2.7.1</title>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/style.css?v=2.7.1">
+</head>
+
+<body>
+
+  <!-- 更新通知 -->
+  <div
+    id="updateNotice"
+    class="update-notice"
+    role="status"
+    aria-live="polite"
+    hidden
+  >
+    <div class="update-notice-text">
+      <strong>新しいデータがあります</strong>
+      <span>ほかの端末で案件が更新されました。</span>
+    </div>
+
+    <button
+      id="applyUpdate"
+      type="button"
+      class="primary"
+    >
+      更新する
+    </button>
+
+    <button
+      id="dismissUpdate"
+      type="button"
+      class="update-notice-close"
+      aria-label="更新通知を閉じる"
+    >
+      ×
+    </button>
+  </div>
+
+  <!-- ヘッダー -->
+  <header class="topbar">
+
+    <div class="brand">
+      <img
+        src="/icons/icon-192.png"
+        alt="光ポータル"
+      >
+
+      <div>
+        <h1>光ポータル</h1>
+        <p>仕事の見える化・納期共有</p>
+      </div>
+    </div>
+
+    <div class="topbar-actions">
+
+      <button
+        id="currentActorStatus"
+        type="button"
+        class="current-actor-status"
+        title="利用者を変更"
+        aria-label="現在の利用者を変更"
+      >
+        利用者：未設定
+      </button>
+
+      <button
+        id="actorSettingsButton"
+        type="button"
+        class="secondary actor-settings-button"
+      >
+        利用者設定
+      </button>
+
+      <div class="refresh-control">
+        <button
+          id="refresh"
+          type="button"
+          class="secondary refresh-button"
+          aria-live="polite"
+        >
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span id="refreshLabel">更新</span>
+        </button>
+        <small id="lastUpdated" class="last-updated">最終更新：—</small>
+      </div>
+    </div>
+
+  </header>
+
+  <!-- ナビゲーション -->
+  <nav aria-label="メインメニュー">
+
+    <button
+      type="button"
+      class="nav active"
+      data-view="home"
+    >
+      ホーム
+    </button>
+
+    <button
+      type="button"
+      class="nav"
+      data-view="deadlines"
+    >
+      納期一覧
+    </button>
+
+    <button
+      type="button"
+      class="nav"
+      data-view="history"
+    >
+      更新履歴
+    </button>
+
+    <button type="button" class="nav" data-view="calculator">材料費計算</button>
+
+    <button
+      type="button"
+      class="nav"
+      data-view="masters"
+    >
+      マスタ管理
+    </button>
+
+  </nav>
+
+  <main>
+
+    <!-- ホーム・スケジュール -->
+    <section
+      id="homeView"
+      class="view active"
+    >
+
+      <div class="toolbar">
+
+        <div class="month-navigation">
+          <button
+            id="prev"
+            type="button"
+            aria-label="前の月"
+          >
+            ‹
+          </button>
+
+          <strong id="month"></strong>
+
+          <button
+            id="next"
+            type="button"
+            aria-label="次の月"
+          >
+            ›
+          </button>
+        </div>
+
+        <input
+          id="search"
+          type="search"
+          placeholder="番船・表示名・製品・得意先・担当者を検索"
+          autocomplete="off"
+        >
+
+        <div class="toolbar-actions">
+
+          <button
+            id="importExcel"
+            type="button"
+            class="secondary"
+          >
+            Excelデータ取込
+          </button>
+
+          <button
+            id="addProject"
+            type="button"
+            class="primary"
+          >
+            ＋ 案件を追加
+          </button>
+
+        </div>
+
+      </div>
+
+      <div
+        id="emptyEmployees"
+        class="notice"
+      ></div>
+
+      <div class="schedule-wrap">
+        <table
+          id="scheduleTable"
+          aria-label="担当者別スケジュール"
+        ></table>
+      </div>
+
+    </section>
+
+    <!-- 納期一覧 -->
+    <section
+      id="deadlinesView"
+      class="view"
+    >
+
+      <div class="section-head">
+
+        <div>
+          <h2>納期一覧</h2>
+          <p class="muted">
+            案件の完了・編集・削除を管理します。
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="primary"
+          data-add
+        >
+          ＋ 案件を追加
+        </button>
+
+      </div>
+
+      <div id="deadlineList"></div>
+
+    </section>
+
+    <!-- 更新履歴 -->
+    <section
+      id="historyView"
+      class="view"
+    >
+
+      <div class="section-head">
+
+        <div>
+          <h2>更新履歴</h2>
+          <p class="muted">
+            案件の追加・編集・完了・削除の履歴を確認できます。
+          </p>
+        </div>
+
+        <button
+          id="refreshHistory"
+          type="button"
+          class="secondary"
+        >
+          履歴を更新
+        </button>
+
+      </div>
+
+      <div class="history-toolbar">
+
+        <label>
+          操作内容
+          <select id="historyActionFilter">
+            <option value="">すべて</option>
+            <option value="create">案件追加</option>
+            <option value="update">案件編集</option>
+            <option value="complete">完了</option>
+            <option value="reopen">完了解除</option>
+            <option value="delete">案件削除</option>
+          </select>
+        </label>
+
+        <label>
+          操作者
+          <select id="historyActorFilter">
+            <option value="">すべて</option>
+          </select>
+        </label>
+
+        <label>
+          履歴を検索
+          <input
+            id="historySearch"
+            type="search"
+            placeholder="番船・表示名・製品名を検索"
+            autocomplete="off"
+          >
+        </label>
+
+      </div>
+
+      <p
+        id="historyError"
+        class="error"
+      ></p>
+
+      <div
+        id="historyLoading"
+        class="history-loading"
+        hidden
+      >
+        更新履歴を読み込んでいます。
+      </div>
+
+      <div
+        id="historyEmpty"
+        class="notice"
+        hidden
+      >
+        更新履歴はまだありません。
+      </div>
+
+      <div id="historyList"></div>
+
+    </section>
+
+
+    <!-- 材料費計算 -->
+    <section id="calculatorView" class="view">
+      <div class="section-head calculator-head">
+        <div>
+          <span class="eyebrow">COST CALCULATOR</span>
+          <h2>材料費計算</h2>
+          <p class="muted">板材の面積比・取り数から、1個あたりの材料費をすばやく計算します。</p>
+        </div>
+      </div>
+
+      <div class="calculator-tabs" role="tablist">
+        <button type="button" class="calculator-tab active" data-calc-tab="area">面積計算</button>
+        <button type="button" class="calculator-tab" data-calc-tab="yield">取り数計算</button>
+        <button type="button" class="calculator-tab" data-calc-tab="materials">材料マスタ</button>
+      </div>
+
+      <section id="calcAreaPanel" class="calculator-panel active">
+        <div class="calculator-layout">
+          <form id="areaCalculatorForm" class="calculator-card">
+            <div class="card-title"><div><span class="step-badge">01</span><h3>面積から計算</h3></div><button type="button" id="clearAreaCalculator" class="text-button">入力をクリア</button></div>
+            <label>材料マスタ<select id="areaMaterialSelect"><option value="">選択しない</option></select></label>
+            <div class="dimension-grid">
+              <label>材料 縦<div class="unit-input"><input id="materialHeight" type="number" min="0" step="any" inputmode="decimal"><select id="materialHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>材料 横<div class="unit-input"><input id="materialWidth" type="number" min="0" step="any" inputmode="decimal"><select id="materialWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <label>材料価格（円／枚）<input id="materialPrice" type="number" min="0" step="any" inputmode="decimal"></label>
+            <div class="dimension-grid">
+              <label>製品 縦<div class="unit-input"><input id="productHeight" type="number" min="0" step="any" inputmode="decimal"><select id="productHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>製品 横<div class="unit-input"><input id="productWidth" type="number" min="0" step="any" inputmode="decimal"><select id="productWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <button type="submit" class="primary calculator-submit">計算する</button>
+          </form>
+          <aside class="result-card" aria-live="polite">
+            <span class="result-kicker">CALCULATION RESULT</span><h3>計算結果</h3>
+            <div class="main-result"><span>1個あたり材料費</span><strong id="areaCostResult">—</strong></div>
+            <dl class="result-list"><div><dt>1円単位切り上げ</dt><dd id="areaCostCeil">—</dd></div><div><dt>材料面積</dt><dd id="materialAreaResult">—</dd></div><div><dt>製品面積</dt><dd id="productAreaResult">—</dd></div><div><dt>面積比</dt><dd id="areaRatioResult">—</dd></div></dl>
+            <p class="formula-note">材料価格 × 製品面積 ÷ 材料面積</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="calcYieldPanel" class="calculator-panel">
+        <div class="calculator-layout compact-layout">
+          <form id="yieldCalculatorForm" class="calculator-card">
+            <div class="card-title"><div><span class="step-badge">02</span><h3>取り数から計算</h3></div></div>
+            <label>材料価格（円／枚）<input id="yieldMaterialPrice" type="number" min="0" step="any" inputmode="decimal" required></label>
+            <label>1枚から取れる個数<input id="yieldCount" type="number" min="1" step="1" inputmode="numeric" required></label>
+            <button type="submit" class="primary calculator-submit">計算する</button>
+          </form>
+          <aside class="result-card"><span class="result-kicker">CALCULATION RESULT</span><h3>計算結果</h3><div class="main-result"><span>1個あたり材料費</span><strong id="yieldCostResult">—</strong></div><dl class="result-list"><div><dt>1円単位切り上げ</dt><dd id="yieldCostCeil">—</dd></div><div><dt>計算式</dt><dd id="yieldFormulaResult">—</dd></div></dl></aside>
+        </div>
+      </section>
+
+      <section id="calcMaterialsPanel" class="calculator-panel">
+        <div class="calculator-layout">
+          <form id="materialMasterForm" class="calculator-card">
+            <input id="materialMasterId" type="hidden">
+            <div class="card-title"><div><span class="step-badge">03</span><h3>材料マスタ登録</h3></div></div>
+            <label>材料名<input id="materialMasterName" required placeholder="例：アクリル透明 5t"></label>
+            <div class="dimension-grid">
+              <label>材料 縦<div class="unit-input"><input id="materialMasterHeight" type="number" min="0" step="any" required><select id="materialMasterHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+              <label>材料 横<div class="unit-input"><input id="materialMasterWidth" type="number" min="0" step="any" required><select id="materialMasterWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+            </div>
+            <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" required></label>
+            <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
+          </form>
+          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><div id="materialMasterList" class="material-master-list"></div></section>
+        </div>
+      </section>
+    </section>
+
+    <!-- マスタ管理 -->
+    <section
+      id="mastersView"
+      class="view"
+    >
+
+      <h2>マスタ管理</h2>
+
+      <p class="muted">
+        初期データはありません。会社で使う名称を登録してください。
+      </p>
+
+      <div
+        class="master-grid"
+        id="masterGrid"
+      ></div>
+
+    </section>
+
+  </main>
+
+  <!-- 案件追加・編集ダイアログ -->
+  <dialog id="projectDialog">
+
+    <form id="projectForm">
+
+      <header>
+
+        <h2 id="projectHeading">
+          案件を追加
+        </h2>
+
+        <button
+          type="button"
+          data-close
+          aria-label="閉じる"
+        >
+          ×
+        </button>
+
+      </header>
+
+      <input
+        id="projectId"
+        type="hidden"
+      >
+
+      <label>
+        番船・案件番号
+
+        <input
+          id="shipNo"
+          value="S."
+          placeholder="S.2830"
+          autocomplete="off"
+        >
+      </label>
+
+      <label>
+        表示名
+
+        <input
+          id="displayName"
+          list="displayNameList"
+          placeholder="入力または候補から選択"
+          required
+          autocomplete="off"
+        >
+
+        <datalist id="displayNameList"></datalist>
+      </label>
+
+      <label>
+        製品名
+
+        <input
+          id="productName"
+          list="productNameList"
+          placeholder="入力または候補から選択"
+          required
+          autocomplete="off"
+        >
+
+        <datalist id="productNameList"></datalist>
+      </label>
+
+      <label>
+        得意先
+
+        <input
+          id="client"
+          list="clientList"
+          placeholder="入力または候補から選択"
+          autocomplete="off"
+        >
+
+        <datalist id="clientList"></datalist>
+      </label>
+
+      <!--
+        Ver2.4互換用の担当者選択欄です。
+        Ver2.5のapp.js導入後は非表示になります。
+      -->
+      <label id="legacyEmployeeLabel">
+        担当者
+
+        <select
+          id="employeeId"
+          required
+        ></select>
+      </label>
+
+      <!--
+        Ver2.5の複数担当者選択欄です。
+        app.js更新後に表示します。
+      -->
+      <fieldset
+        id="employeeChoicesField"
+        class="employee-fieldset"
+        hidden
+      >
+        <legend>
+          担当者
+          <span class="required-mark">必須</span>
+        </legend>
+
+        <p class="field-help">
+          担当する社員を1人以上選択してください。
+        </p>
+
+        <div
+          id="employeeChoices"
+          class="employee-choices"
+        ></div>
+
+        <p
+          id="employeeChoiceError"
+          class="error"
+        ></p>
+      </fieldset>
+
+      <label>
+        納期
+
+        <input
+          id="dueDate"
+          type="date"
+          required
+        >
+      </label>
+
+      <label>
+        メモ
+
+        <textarea
+          id="notes"
+          rows="3"
+        ></textarea>
+      </label>
+
+      <p
+        id="projectError"
+        class="error"
+      ></p>
+
+      <footer>
+
+        <button
+          type="button"
+          class="secondary"
+          data-close
+        >
+          キャンセル
+        </button>
+
+        <button
+          type="submit"
+          class="primary"
+        >
+          登録する
+        </button>
+
+      </footer>
+
+    </form>
+
+  </dialog>
+
+  <!-- Excel取込ダイアログ -->
+  <dialog
+    id="importDialog"
+    class="wide-dialog"
+  >
+
+    <form id="importForm">
+
+      <header>
+
+        <div>
+          <h2>Excelデータ取込</h2>
+
+          <p class="muted">
+            Excelを読み込み、担当者と納期を指定して登録します。
+          </p>
+        </div>
+
+        <button
+          type="button"
+          data-close
+          aria-label="閉じる"
+        >
+          ×
+        </button>
+
+      </header>
+
+      <!-- Excelファイル選択 -->
+      <section id="importStep1">
+
+        <label class="file-drop">
+          Excelファイル
+
+          <input
+            id="excelFile"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            required
+          >
+
+          <span>
+            クリックしてファイルを選択
+          </span>
+        </label>
+
+        <p
+          id="importReadError"
+          class="error"
+        ></p>
+
+        <button
+          type="button"
+          id="readExcel"
+          class="primary"
+        >
+          Excelを読み取る
+        </button>
+
+      </section>
+
+      <!-- Excel読取後 -->
+      <section
+        id="importStep2"
+        hidden
+      >
+
+        <div class="import-common">
+
+          <label>
+            番船・案件番号
+
+            <input
+              id="importShipNo"
+              value="S."
+              autocomplete="off"
+            >
+          </label>
+
+          <label>
+            表示名
+
+            <input
+              id="importDisplayName"
+              list="displayNameList"
+              required
+              autocomplete="off"
+            >
+          </label>
+
+          <label>
+            得意先
+
+            <input
+              id="importClient"
+              list="clientList"
+              autocomplete="off"
+            >
+          </label>
+
+          <label>
+            共通納期
+
+            <input
+              id="importDueDate"
+              type="date"
+              required
+            >
+          </label>
+
+          <!-- Ver2.4互換用 -->
+          <label id="legacyImportEmployeeLabel">
+            共通担当者
+
+            <select id="importEmployee"></select>
+          </label>
+
+          <!-- Ver2.6.3 共通担当者：複数選択プルダウン -->
+          <label class="import-common-employee-label">
+            共通担当者
+            <span id="importEmployeeDropdownHost"></span>
+          </label>
+
+          <!-- 互換用（非表示） -->
+          <fieldset id="importEmployeeChoicesField" hidden>
+            <div id="importEmployeeChoices"></div>
+          </fieldset>
+
+        </div>
+
+        <div
+          id="etchingAutoAssignNotice"
+          class="auto-assign-notice"
+          hidden
+        >
+          エッチング明細には、担当者「マサヒーロー」を自動設定します。
+        </div>
+
+        <div class="import-tools">
+
+          <button
+            type="button"
+            id="applyImportCommon"
+            class="secondary"
+          >
+            担当者・納期を全明細へ反映
+          </button>
+
+          <span
+            id="importCount"
+            class="muted"
+          ></span>
+
+        </div>
+
+        <div class="import-table-wrap">
+
+          <table class="import-table">
+
+            <thead>
+              <tr>
+                <th>取込</th>
+                <th>製品名</th>
+                <th>数量</th>
+                <th>仕様・備考</th>
+                <th>担当者</th>
+                <th>納期</th>
+              </tr>
+            </thead>
+
+            <tbody id="importRows"></tbody>
+
+          </table>
+
+        </div>
+
+        <p
+          id="importError"
+          class="error"
+        ></p>
+
+        <footer>
+
+          <button
+            type="button"
+            class="secondary"
+            id="backImport"
+          >
+            ファイル選択へ戻る
+          </button>
+
+          <button
+            type="submit"
+            class="primary"
+          >
+            選択した明細を登録
+          </button>
+
+        </footer>
+
+      </section>
+
+    </form>
+
+  </dialog>
+
+  <!-- 案件詳細 -->
+  <dialog id="detailDialog">
+    <div id="detailBody"></div>
+  </dialog>
+
+  <!-- 更新履歴詳細 -->
+  <dialog
+    id="historyDetailDialog"
+    class="history-detail-dialog"
+  >
+    <div id="historyDetailBody"></div>
+  </dialog>
+
+  <!-- 1件削除確認 -->
+  <dialog
+    id="deleteDialog"
+    class="confirm-dialog"
+  >
+
+    <div>
+
+      <header>
+
+        <h2>案件を削除</h2>
+
+        <button
+          type="button"
+          data-close
+          aria-label="閉じる"
+        >
+          ×
+        </button>
+
+      </header>
+
+      <p>
+        この案件を削除しますか？
+      </p>
+
+      <p
+        id="deleteTarget"
+        class="delete-target"
+      ></p>
+
+      <p class="error">
+        この操作は元に戻せません。
+      </p>
+
+      <footer>
+
+        <button
+          type="button"
+          class="secondary"
+          data-close
+        >
+          キャンセル
+        </button>
+
+        <button
+          type="button"
+          id="confirmDelete"
+          class="danger"
+        >
+          削除する
+        </button>
+
+      </footer>
+
+    </div>
+
+  </dialog>
+
+  <!-- 複数案件削除確認 -->
+  <dialog
+    id="bulkDeleteDialog"
+    class="confirm-dialog"
+  >
+
+    <div>
+
+      <header>
+
+        <h2>選択した案件を削除</h2>
+
+        <button
+          type="button"
+          data-close
+          aria-label="閉じる"
+        >
+          ×
+        </button>
+
+      </header>
+
+      <p>
+        選択した案件をまとめて削除しますか？
+      </p>
+
+      <p
+        id="bulkDeleteTarget"
+        class="delete-target"
+      ></p>
+
+      <p class="error">
+        この操作は元に戻せません。
+      </p>
+
+      <footer>
+
+        <button
+          type="button"
+          class="secondary"
+          data-close
+        >
+          キャンセル
+        </button>
+
+        <button
+          type="button"
+          id="confirmBulkDelete"
+          class="danger"
+        >
+          まとめて削除する
+        </button>
+
+      </footer>
+
+    </div>
+
+  </dialog>
+
+  <!-- トースト通知 -->
+  <div
+    id="toast"
+    role="status"
+    aria-live="polite"
+  ></div>
+
+  <script
+    src="/app.js?v=2.7.1"
+    defer
+  ></script>
+
+</body>
+</html>

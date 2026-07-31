@@ -1,690 +1,1221 @@
-'use strict';
-
-const API = {
-  projects: '/api/projects',
-  masters: '/api/masters',
-  excel: '/api/excel-import'
-};
-
-const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
-const POLL_INTERVAL = 30000;
-
-const S = {
-  projects: [],
-  masters: { employees: [], clients: [], displayNames: [], products: [] },
-  month: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-  q: '',
-  importItems: [],
-  pendingDeleteId: '',
-  selectedProjectIds: new Set(),
-  actorEmployeeId: localStorage.getItem(STORAGE_ACTOR_ID) || '',
-  revision: '',
-  history: [],
-  historyLoaded: false,
-  pendingRemoteUpdate: false,
-  pollTimer: null
-};
-
-const $ = id => document.getElementById(id);
-const fd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
-const jp = value => value ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date(`${value}T00:00:00`)) : '—';
-const jpDateTime = value => value ? new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
-
-function toast(message) {
-  const node = $('toast');
-  if (!node) return;
-  node.textContent = message;
-  node.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => node.classList.remove('show'), 2400);
+:root{
+  font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;
+  color:#172033;
+  background:#f3f5f8;
 }
 
-async function api(url, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers: options.body ? { 'content-type': 'application/json' } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    cache: 'no-store'
-  });
-  let data = {};
-  try { data = await response.json(); } catch {}
-  if (!response.ok) throw new Error(data.error || '通信に失敗しました。');
-  return data;
+*{
+  box-sizing:border-box;
 }
 
-function normalizeShipNo(value) {
-  let text = String(value || '').trim();
-  if (!text) return '';
-  if (/^s\.?\s*/i.test(text)) return `S.${text.replace(/^s\.?\s*/i, '')}`;
-  if (/^\d/.test(text)) return `S.${text}`;
-  return text;
+body{
+  margin:0;
 }
 
-function ordered(type) {
-  return [...(S.masters[type] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+button{
+  font:inherit;
+  cursor:pointer;
 }
 
-function employee(id) {
-  return S.masters.employees.find(item => item.id === id);
+/* ヘッダー */
+
+.topbar{
+  background:#0d1b3d;
+  color:#fff;
+  padding:14px 22px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
 }
 
-function employeeName(id) {
-  return employee(id)?.name || '未設定';
+.brand{
+  display:flex;
+  gap:12px;
+  align-items:center;
 }
 
-function projectEmployeeIds(project) {
-  const ids = Array.isArray(project.employeeIds) ? project.employeeIds.filter(Boolean) : [];
-  if (!ids.length && project.employeeId) ids.push(project.employeeId);
-  return [...new Set(ids)];
+.brand img{
+  width:46px;
+  height:46px;
+  border-radius:10px;
 }
 
-function employeeNames(project) {
-  const names = projectEmployeeIds(project).map(employeeName);
-  return names.length ? names.join('・') : '未設定';
+.brand h1,
+.brand p{
+  margin:0;
 }
 
-function actorPayload() {
-  const item = employee(S.actorEmployeeId);
-  return {
-    actorId: S.actorEmployeeId,
-    actorEmployeeId: S.actorEmployeeId,
-    actorName: item?.name || ''
-  };
+.brand p{
+  opacity:.75;
+  font-size:13px;
 }
 
-function employeeColorStyle(id) {
-  const index = Math.max(0, ordered('employees').findIndex(item => item.id === id));
-  const hues = [215, 145, 28, 275, 350, 185, 52, 245];
-  const hue = hues[index % hues.length];
-  return `--employee-hue:${hue};`;
+/* ナビゲーション */
+
+nav{
+  display:flex;
+  background:#fff;
+  border-bottom:1px solid #dfe4ec;
+  padding:0 18px;
 }
 
-function ensureActorUi() {
-  if (!$('actorDialog')) {
-    document.body.insertAdjacentHTML('beforeend', `
-      <dialog id="actorDialog" class="actor-dialog">
-        <form id="actorForm">
-          <header>
-            <div>
-              <h2>光ポータルへようこそ</h2>
-              <p class="muted">最初に、あなたのお名前を選択してください。</p>
-            </div>
-          </header>
-          <fieldset class="employee-fieldset">
-            <legend>あなたのお名前</legend>
-            <div id="actorChoices" class="employee-choices"></div>
-            <p id="actorError" class="error"></p>
-          </fieldset>
-          <footer>
-            <button type="submit" class="primary">開始する</button>
-          </footer>
-        </form>
-      </dialog>
-      <dialog id="actorSettingsDialog" class="actor-dialog">
-        <form id="actorSettingsForm">
-          <header>
-            <div>
-              <h2>利用者設定</h2>
-              <p class="muted">更新履歴に記録する名前を変更できます。</p>
-            </div>
-            <button type="button" data-close aria-label="閉じる">×</button>
-          </header>
-          <fieldset class="employee-fieldset">
-            <legend>現在操作している人</legend>
-            <div id="actorSettingsChoices" class="employee-choices"></div>
-            <p id="actorSettingsError" class="error"></p>
-          </fieldset>
-          <footer>
-            <button type="button" class="secondary" data-close>キャンセル</button>
-            <button type="submit" class="primary">変更する</button>
-          </footer>
-        </form>
-      </dialog>
-    `);
+.nav{
+  border:0;
+  background:none;
+  padding:15px 20px;
+  font-weight:700;
+  color:#637087;
+}
+
+.nav.active{
+  color:#0d1b3d;
+  border-bottom:3px solid #0d1b3d;
+}
+
+/* 共通レイアウト */
+
+main{
+  padding:20px;
+}
+
+.view{
+  display:none;
+}
+
+.view.active{
+  display:block;
+}
+
+.toolbar,
+.section-head{
+  display:flex;
+  gap:12px;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:16px;
+}
+
+.toolbar input{
+  width:min(520px,45vw);
+  padding:11px;
+  border:1px solid #cbd3df;
+  border-radius:9px;
+}
+
+.toolbar-actions{
+  display:flex;
+  gap:8px;
+}
+
+.toolbar-actions button{
+  white-space:nowrap;
+}
+
+/* ボタン */
+
+.primary{
+  background:#0d1b3d;
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:10px 15px;
+  font-weight:700;
+}
+
+.secondary{
+  background:#fff;
+  color:#0d1b3d;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+  padding:9px 14px;
+}
+
+.danger{
+  background:#b42318;
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:10px 15px;
+  font-weight:700;
+}
+
+button:disabled{
+  cursor:not-allowed;
+  opacity:.45;
+}
+
+/* スケジュール */
+
+.schedule-wrap{
+  overflow:auto;
+  background:#fff;
+  border-radius:12px;
+  border:1px solid #dfe4ec;
+  max-height:72vh;
+}
+
+table{
+  border-collapse:collapse;
+  width:max-content;
+  min-width:100%;
+}
+
+th,
+td{
+  border:1px solid #e3e7ee;
+  vertical-align:top;
+  min-width:190px;
+  padding:8px;
+}
+
+thead th{
+  position:sticky;
+  top:0;
+  background:#eef2f8;
+  z-index:2;
+}
+
+.date-col,
+tbody th{
+  min-width:100px;
+  position:sticky;
+  left:0;
+  background:#f8fafc;
+  z-index:1;
+}
+
+.job{
+  display:flex;
+  width:100%;
+  text-align:left;
+  flex-direction:column;
+  border:1px solid #b9c6da;
+  background:#fff;
+  border-left:5px solid #0d1b3d;
+  border-radius:8px;
+  padding:8px;
+  margin-bottom:7px;
+}
+
+.job b{
+  font-size:14px;
+}
+
+.job span{
+  font-weight:700;
+}
+
+.job small{
+  color:#5b6678;
+}
+
+.job.done{
+  opacity:.45;
+  text-decoration:line-through;
+}
+
+/* 納期一覧・選択ツールバー */
+
+.deadline-selection-toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  background:#fff;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+  padding:12px;
+  margin-bottom:12px;
+}
+
+.deadline-selection-toolbar strong{
+  margin-left:auto;
+  white-space:nowrap;
+}
+
+.deadline-selection-toolbar .danger{
+  white-space:nowrap;
+}
+
+/* 納期一覧の案件カード */
+
+.deadline{
+  background:#fff;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+  padding:13px;
+  margin:9px 0;
+  display:grid;
+  grid-template-columns:34px 42px minmax(0,1fr) auto auto;
+  gap:12px;
+  align-items:center;
+}
+
+.deadline h3,
+.deadline p{
+  margin:3px 0;
+}
+
+.deadline h3{
+  overflow-wrap:anywhere;
+}
+
+.deadline p{
+  color:#5b6678;
+  overflow-wrap:anywhere;
+}
+
+.deadline time{
+  font-weight:700;
+  color:#0d1b3d;
+}
+
+.deadline.done{
+  opacity:.5;
+}
+
+.project-select{
+  width:20px;
+  height:20px;
+  margin:0;
+  justify-self:center;
+  cursor:pointer;
+  accent-color:#0d1b3d;
+}
+
+.check{
+  width:30px;
+  height:30px;
+  padding:0;
+  border-radius:50%;
+  border:2px solid #0d1b3d;
+  background:#fff;
+  color:#0d1b3d;
+  font-weight:700;
+  justify-self:center;
+}
+
+.deadline>button{
+  white-space:nowrap;
+}
+
+.deadline>button[data-edit]{
+  background:#fff;
+  color:#0d1b3d;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+  padding:9px 13px;
+  font-weight:700;
+}
+
+.deadline>button[data-delete]{
+  background:#fff;
+  color:#b42318;
+  border:1px solid #e0a39e;
+  border-radius:8px;
+  padding:9px 13px;
+  font-weight:700;
+}
+
+.deadline>button[data-edit]:hover{
+  background:#eef2f8;
+}
+
+.deadline>button[data-delete]:hover{
+  background:#fff1f0;
+}
+
+/* マスタ管理 */
+
+.master-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
+  gap:16px;
+}
+
+.master-card{
+  background:#fff;
+  padding:16px;
+  border:1px solid #dfe4ec;
+  border-radius:12px;
+}
+
+.master-card form{
+  display:flex;
+  gap:8px;
+}
+
+.master-card input{
+  min-width:0;
+  flex:1;
+  padding:9px;
+  border:1px solid #cbd3df;
+  border-radius:7px;
+}
+
+.master-item{
+  display:flex;
+  justify-content:space-between;
+  padding:9px 0;
+  border-bottom:1px solid #eee;
+}
+
+.master-actions{
+  display:flex;
+  gap:4px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.master-actions button{
+  font-size:12px;
+  padding:5px 7px;
+  border:1px solid #cbd3df;
+  background:#fff;
+  border-radius:6px;
+}
+
+.master-item.inactive span{
+  opacity:.45;
+  text-decoration:line-through;
+}
+
+/* メッセージ */
+
+.muted,
+.notice{
+  color:#667085;
+}
+
+.notice{
+  background:#fff5d7;
+  padding:12px;
+  border-radius:8px;
+  margin:8px 0;
+}
+
+.error{
+  color:#b42318;
+}
+
+/* ダイアログ */
+
+dialog{
+  border:0;
+  border-radius:14px;
+  width:min(520px,92vw);
+  box-shadow:0 20px 60px #0004;
+}
+
+dialog::backdrop{
+  background:#0b122099;
+}
+
+dialog form{
+  display:grid;
+  gap:12px;
+}
+
+dialog header,
+dialog footer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+dialog header button{
+  border:0;
+  background:none;
+  font-size:26px;
+}
+
+label{
+  display:grid;
+  gap:5px;
+  font-weight:700;
+}
+
+input,
+select,
+textarea{
+  font:inherit;
+  padding:10px;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+}
+
+.detail-actions{
+  margin-top:20px;
+  gap:12px;
+}
+
+.detail-actions>div{
+  display:flex;
+  gap:8px;
+}
+
+.confirm-dialog{
+  width:min(440px,92vw);
+}
+
+.confirm-dialog h2,
+.confirm-dialog p{
+  margin-top:0;
+}
+
+.delete-target{
+  padding:12px;
+  background:#f3f5f8;
+  border-radius:8px;
+  font-weight:700;
+}
+
+.confirm-dialog footer{
+  margin-top:20px;
+}
+
+dl{
+  display:grid;
+  grid-template-columns:90px 1fr;
+  gap:10px;
+}
+
+dt{
+  font-weight:700;
+  color:#667085;
+}
+
+dd{
+  margin:0;
+}
+
+/* Excel取込 */
+
+.wide-dialog{
+  width:min(1180px,96vw);
+}
+
+.wide-dialog form{
+  display:block;
+}
+
+.wide-dialog header{
+  margin-bottom:16px;
+}
+
+.wide-dialog header h2,
+.wide-dialog header p{
+  margin:0;
+}
+
+.file-drop{
+  border:2px dashed #b9c6da;
+  border-radius:12px;
+  padding:28px;
+  text-align:center;
+  background:#f8fafc;
+  cursor:pointer;
+}
+
+.file-drop input{
+  display:block;
+  margin:0 auto 12px;
+}
+
+.import-common{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+
+.import-tools{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin:14px 0;
+}
+
+.import-table-wrap{
+  overflow:auto;
+  max-height:54vh;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+}
+
+.import-table{
+  width:100%;
+  min-width:980px;
+}
+
+.import-table th{
+  min-width:auto;
+  position:sticky;
+  top:0;
+  background:#eef2f8;
+}
+
+.import-table td{
+  min-width:auto;
+  vertical-align:middle;
+}
+
+.import-table th:nth-child(1),
+.import-table td:nth-child(1){
+  width:55px;
+  min-width:55px;
+  text-align:center;
+}
+
+.import-table th:nth-child(2),
+.import-table td:nth-child(2){
+  width:280px;
+  min-width:280px;
+}
+
+.import-table th:nth-child(3){
+  width:85px;
+}
+
+.import-table th:nth-child(4){
+  width:310px;
+}
+
+.import-table th:nth-child(5){
+  width:170px;
+}
+
+.import-table th:nth-child(6){
+  width:155px;
+}
+
+.import-table input,
+.import-table select,
+.import-table textarea{
+  width:100%;
+}
+
+.import-table .import-select{
+  width:auto;
+}
+
+/* Ver2.6.2 楽一取込：担当者をプルダウン表示 */
+.import-assignee-select-wrap{
+  display:grid;
+  gap:5px;
+  width:100%;
+}
+
+.import-employee-select{
+  width:100%;
+  min-height:44px;
+  padding:8px 36px 8px 11px;
+  border:1px solid #cbd6e5;
+  border-radius:10px;
+  background:#fff;
+  color:#172033;
+  font-weight:750;
+  cursor:pointer;
+}
+
+.import-employee-select:focus{
+  outline:none;
+  border-color:#6f9ed8;
+  box-shadow:0 0 0 3px rgba(69,121,184,.16);
+}
+
+.import-assignee-select-wrap.auto-etching .import-employee-select{
+  border-color:#9eddb9;
+  background:#ecfbf3;
+  color:#145b36;
+}
+
+.import-auto-note{
+  color:#28764c;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.3;
+}
+
+.wide-dialog footer{
+  margin-top:14px;
+}
+
+/* トースト通知 */
+
+#toast{
+  position:fixed;
+  right:20px;
+  bottom:20px;
+  background:#172033;
+  color:#fff;
+  padding:12px 18px;
+  border-radius:8px;
+  opacity:0;
+  transform:translateY(15px);
+  transition:.2s;
+  z-index:1000;
+}
+
+#toast.show{
+  opacity:1;
+  transform:none;
+}
+
+/* タブレット */
+
+@media(max-width:900px){
+
+  .toolbar-actions{
+    flex-wrap:wrap;
   }
 
-  if (!$('actorSettingsButton')) {
-    const nav = document.querySelector('nav');
-    if (nav) nav.insertAdjacentHTML('beforeend', '<button type="button" class="nav" id="actorSettingsButton">設定</button>');
-  }
-
-  const oldSelector = document.querySelector('.actor-selector');
-  if (oldSelector) oldSelector.remove();
-}
-
-function renderActorChoices(containerId, selectedId = '') {
-  const container = $(containerId);
-  if (!container) return;
-  const employees = ordered('employees').filter(item => item.active !== false);
-  container.innerHTML = employees.map(item => `
-    <label class="employee-choice" style="${employeeColorStyle(item.id)}">
-      <input type="radio" name="${containerId}" value="${esc(item.id)}" ${item.id === selectedId ? 'checked' : ''}>
-      <span>${esc(item.name)}</span>
-    </label>
-  `).join('') || '<p class="notice">社員マスタが登録されていません。</p>';
-}
-
-function validateStoredActor() {
-  if (S.actorEmployeeId && employee(S.actorEmployeeId)?.active !== false) return true;
-  S.actorEmployeeId = '';
-  localStorage.removeItem(STORAGE_ACTOR_ID);
-  return false;
-}
-
-function requestActorIfNeeded() {
-  if (validateStoredActor()) return;
-  renderActorChoices('actorChoices');
-  const dialog = $('actorDialog');
-  if (dialog && !dialog.open) dialog.showModal();
-}
-
-function setActor(id) {
-  S.actorEmployeeId = id;
-  localStorage.setItem(STORAGE_ACTOR_ID, id);
-}
-
-function fillDatalist(type) {
-  return ordered(type).filter(item => item.active !== false).map(item => `<option value="${esc(item.name)}"></option>`).join('');
-}
-
-function optionHtml(type, blank = '選択してください') {
-  return `<option value="">${esc(blank)}</option>` + ordered(type).filter(item => item.active !== false).map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
-}
-
-function renderEmployeeCheckboxes(containerId, selectedIds = []) {
-  const container = $(containerId);
-  if (!container) return;
-  const selected = new Set(selectedIds);
-  container.innerHTML = ordered('employees').filter(item => item.active !== false).map(item => `
-    <label class="employee-choice" style="${employeeColorStyle(item.id)}">
-      <input type="checkbox" value="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''}>
-      <span>${esc(item.name)}</span>
-    </label>
-  `).join('');
-}
-
-function checkedValues(containerId) {
-  return [...document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)].map(input => input.value);
-}
-
-function fillSelects() {
-  if ($('displayNameList')) $('displayNameList').innerHTML = fillDatalist('displayNames');
-  if ($('productNameList')) $('productNameList').innerHTML = fillDatalist('products');
-  if ($('clientList')) $('clientList').innerHTML = fillDatalist('clients');
-  if ($('employeeId')) $('employeeId').innerHTML = optionHtml('employees');
-  if ($('importEmployee')) $('importEmployee').innerHTML = optionHtml('employees', '担当者を選択');
-  renderEmployeeCheckboxes('employeeChoices');
-  renderEmployeeCheckboxes('importEmployeeChoices');
-  renderActorChoices('actorChoices', S.actorEmployeeId);
-  renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
-  if ($('historyActorFilter')) {
-    const current = $('historyActorFilter').value;
-    $('historyActorFilter').innerHTML = '<option value="">すべて</option>' + ordered('employees').map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
-    $('historyActorFilter').value = current;
-  }
-  if ($('legacyEmployeeLabel')) $('legacyEmployeeLabel').hidden = true;
-  if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
-  if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
-  if ($('importEmployeeChoicesField')) $('importEmployeeChoicesField').hidden = false;
-}
-
-function filtered() {
-  const q = S.q.trim().toLowerCase();
-  return S.projects.filter(project => !q || [
-    project.shipNo, project.displayName, project.productName, project.client,
-    project.spec, project.notes, employeeNames(project)
-  ].join(' ').toLowerCase().includes(q));
-}
-
-function projectCard(project, employeeId) {
-  return `<button class="job ${project.completed ? 'done' : ''}" style="${employeeColorStyle(employeeId)}" data-detail="${esc(project.id)}"><b>${esc(project.shipNo || '—')}</b><span>${esc(project.displayName)}</span><small>${esc(project.productName)}</small></button>`;
-}
-
-function renderSchedule() {
-  const year = S.month.getFullYear();
-  const month = S.month.getMonth();
-  if ($('month')) $('month').textContent = `${year}年${month + 1}月`;
-  const employees = ordered('employees').filter(item => item.active !== false);
-  if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
-  const days = new Date(year, month + 1, 0).getDate();
-  let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
-  for (let day = 1; day <= days; day++) {
-    const date = fd(new Date(year, month, day));
-    html += `<tr><th>${esc(jp(date))}</th>` + employees.map(item => {
-      const cards = filtered().filter(project => project.dueDate === date && projectEmployeeIds(project).includes(item.id)).map(project => projectCard(project, item.id)).join('');
-      return `<td>${cards}</td>`;
-    }).join('') + '</tr>';
-  }
-  html += '</tbody>';
-  if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
-}
-
-function renderDeadlines() {
-  const list = filtered().slice().sort((a, b) => Number(a.completed) - Number(b.completed) || String(a.dueDate).localeCompare(String(b.dueDate)));
-  const count = S.selectedProjectIds.size;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件を削除</button></div>`;
-  const items = list.length ? list.map(project => `
-    <article class="deadline ${project.completed ? 'done' : ''}">
-      <input type="checkbox" class="project-select" data-select-project="${esc(project.id)}" ${S.selectedProjectIds.has(project.id) ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <button type="button" data-toggle="${esc(project.id)}" class="check">${project.completed ? '✓' : ''}</button>
-      <div><time>${esc(jp(project.dueDate))}</time><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
-      <button type="button" data-edit="${esc(project.id)}">編集</button>
-      <button type="button" data-delete="${esc(project.id)}">削除</button>
-    </article>
-  `).join('') : '<div class="notice">案件はありません。</div>';
-  if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
-}
-
-const masterLabels = { employees: '社員', clients: '得意先', displayNames: '表示名', products: '製品' };
-function renderMasters() {
-  if (!$('masterGrid')) return;
-  $('masterGrid').innerHTML = Object.keys(masterLabels).map(type => `<section class="master-card"><h3>${masterLabels[type]}マスタ</h3><form data-master="${type}"><input placeholder="${masterLabels[type]}名"><button class="primary">追加</button></form><div>${ordered(type).map((item, index, array) => `<div class="master-item ${item.active === false ? 'inactive' : ''}"><span>${esc(item.name)}</span><div class="master-actions"><button type="button" data-move="up" data-id="${esc(item.id)}" data-type="${type}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="down" data-id="${esc(item.id)}" data-type="${type}" ${index === array.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-medit="${esc(item.id)}" data-type="${type}">変更</button><button type="button" data-mtoggle="${esc(item.id)}" data-type="${type}">${item.active === false ? '表示' : '非表示'}</button><button type="button" data-mdelete="${esc(item.id)}" data-type="${type}">削除</button></div></div>`).join('') || '<p class="muted">登録なし</p>'}</div></section>`).join('');
-}
-
-function render() {
-  renderSchedule();
-  renderDeadlines();
-  renderMasters();
-  fillSelects();
-}
-
-async function load({ silent = false } = {}) {
-  try {
-    const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
-    S.projects = (projectData.projects || []).map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
-    S.masters = masterData.masters || S.masters;
-    S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
-    render();
-    requestActorIfNeeded();
-  } catch (error) {
-    if (!silent) toast(error.message);
-  }
-}
-
-function openDetail(id) {
-  const project = S.projects.find(item => item.id === id);
-  if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl><footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">削除</button></div></footer>`;
-  $('detailDialog').showModal();
-}
-
-function openProject(id = '') {
-  const project = S.projects.find(item => item.id === id);
-  $('projectId').value = project?.id || '';
-  $('shipNo').value = project?.shipNo || 'S.';
-  $('displayName').value = project?.displayName || '';
-  $('productName').value = project?.productName || '';
-  $('client').value = project?.client || '';
-  $('dueDate').value = project?.dueDate || fd(new Date());
-  $('notes').value = project?.notes || '';
-  $('projectHeading').textContent = project ? '案件を編集' : '案件を追加';
-  $('projectError').textContent = '';
-  $('employeeChoiceError').textContent = '';
-  renderEmployeeCheckboxes('employeeChoices', project ? projectEmployeeIds(project) : []);
-  $('projectDialog').showModal();
-  setTimeout(() => { const input = $('shipNo'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 0);
-}
-
-function requestDelete(id) {
-  const project = S.projects.find(item => item.id === id);
-  if (!project) return toast('案件が見つかりません。');
-  S.pendingDeleteId = id;
-  $('deleteTarget').textContent = `${project.shipNo || ''} ${project.displayName || ''} ${project.productName || ''}`.trim();
-  if ($('detailDialog').open) $('detailDialog').close();
-  $('deleteDialog').showModal();
-}
-
-async function confirmDelete() {
-  if (!S.pendingDeleteId) return;
-  try {
-    await api(`${API.projects}?id=${encodeURIComponent(S.pendingDeleteId)}`, { method: 'DELETE', body: actorPayload() });
-    S.selectedProjectIds.delete(S.pendingDeleteId);
-    S.pendingDeleteId = '';
-    $('deleteDialog').close();
-    await load();
-    toast('案件を削除しました');
-  } catch (error) { toast(error.message); }
-}
-
-function openImport() {
-  if (!ordered('employees').some(item => item.active !== false)) return toast('先に社員マスタを登録してください。');
-  $('importForm').reset();
-  $('importShipNo').value = 'S.';
-  $('importDueDate').value = fd(new Date());
-  $('importStep1').hidden = false;
-  $('importStep2').hidden = true;
-  $('importReadError').textContent = '';
-  $('importError').textContent = '';
-  S.importItems = [];
-  renderEmployeeCheckboxes('importEmployeeChoices');
-  $('importDialog').showModal();
-}
-
-function fileBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1]);
-    reader.onerror = () => reject(new Error('ファイルを読み込めませんでした。'));
-    reader.readAsDataURL(file);
-  });
-}
-
-function findMasahiroId() {
-  const normalized = value => String(value || '').replace(/[\s　]/g, '').toLowerCase();
-  return ordered('employees').find(item => ['マサヒーロー', 'まさひーろー', 'masahiro'].includes(normalized(item.name)))?.id || '';
-}
-
-function isEtching(item) {
-  return /エッチング|腐食/i.test([item.productName, item.spec, item.remarks].filter(Boolean).join(' '));
-}
-
-function rowEmployeeCheckboxes(index, selectedIds) {
-  const selected = new Set(selectedIds);
-  return `<div class="employee-choices compact import-row-employees" data-import-employees="${index}">${ordered('employees').filter(item => item.active !== false).map(item => `<label class="employee-choice" style="${employeeColorStyle(item.id)}"><input type="checkbox" value="${esc(item.id)}" ${selected.has(item.id) ? 'checked' : ''}><span>${esc(item.name)}</span></label>`).join('')}</div>`;
-}
-
-function renderImportRows() {
-  const masahiroId = findMasahiroId();
-  let hasAutoAssign = false;
-  $('importRows').innerHTML = S.importItems.map((item, index) => {
-    const selectedIds = isEtching(item) && masahiroId ? [masahiroId] : [];
-    if (selectedIds.length) hasAutoAssign = true;
-    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeCheckboxes(index, selectedIds)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
-  }).join('');
-  if ($('etchingAutoAssignNotice')) $('etchingAutoAssignNotice').hidden = !hasAutoAssign;
-  updateImportCount();
-}
-
-function updateImportCount() {
-  if ($('importCount')) $('importCount').textContent = `${document.querySelectorAll('.import-select:checked').length}件を登録予定`;
-}
-
-function historyAction(item) {
-  return item.action || item.type || item.event || '';
-}
-
-function historyActorId(item) {
-  return item.actorEmployeeId || item.actorId || item.employeeId || '';
-}
-
-function historyActorName(item) {
-  return item.actorName || employeeName(historyActorId(item));
-}
-
-function historyProject(item) {
-  return item.project || item.after || item.before || item.data || {};
-}
-
-const historyLabels = { create: '案件追加', add: '案件追加', update: '案件編集', edit: '案件編集', complete: '完了', reopen: '完了解除', toggle: '完了状態変更', delete: '案件削除' };
-
-function renderHistory() {
-  if (!$('historyList')) return;
-  const actionFilter = $('historyActionFilter')?.value || '';
-  const actorFilter = $('historyActorFilter')?.value || '';
-  const query = ($('historySearch')?.value || '').trim().toLowerCase();
-  const list = S.history.filter(item => {
-    const action = historyAction(item);
-    const project = historyProject(item);
-    const text = [project.shipNo, project.displayName, project.productName, item.summary, historyActorName(item)].join(' ').toLowerCase();
-    return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
-  });
-  if ($('historyEmpty')) $('historyEmpty').hidden = list.length !== 0;
-  $('historyList').innerHTML = list.map((item, index) => {
-    const project = historyProject(item);
-    const actorId = historyActorId(item);
-    const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(project.productName || item.summary || '')}</p></button></article>`;
-  }).join('');
-}
-
-async function loadHistory() {
-  if (!$('historyList')) return;
-  $('historyLoading').hidden = false;
-  $('historyError').textContent = '';
-  try {
-    const data = await api(`${API.projects}?history=1`);
-    S.history = data.history || data.items || [];
-    S.historyLoaded = true;
-    renderHistory();
-  } catch (error) {
-    $('historyError').textContent = error.message;
-  } finally {
-    $('historyLoading').hidden = true;
-  }
-}
-
-function openHistoryDetail(index) {
-  const item = S.history[index];
-  if (!item) return;
-  const before = item.before || null;
-  const after = item.after || item.project || null;
-  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(data.productName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
-  $('historyDetailBody').innerHTML = `<header><h2>更新履歴の詳細</h2><button type="button" data-close>×</button></header><p><strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>　${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</p><p>操作者：${esc(historyActorName(item))}</p><div class="history-compare"><section><h3>変更前</h3>${table(before)}</section><section><h3>変更後</h3>${table(after)}</section></div><footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
-  $('historyDetailDialog').showModal();
-}
-
-async function pollRevision() {
-  if (document.hidden || S.pendingRemoteUpdate) return;
-  try {
-    const data = await api(`${API.projects}?mode=status`);
-    const revision = String(data.revision ?? data.updatedAt ?? data.status?.revision ?? '');
-    if (!S.revision) { S.revision = revision; return; }
-    if (revision && revision !== S.revision) {
-      S.pendingRemoteUpdate = true;
-      if ($('updateNotice')) $('updateNotice').hidden = false;
-    }
-  } catch {}
-}
-
-function startPolling() {
-  clearInterval(S.pollTimer);
-  S.pollTimer = setInterval(pollRevision, POLL_INTERVAL);
-}
-
-async function bulkDeleteSelectedProjects() {
-  const ids = [...S.selectedProjectIds];
-  if (!ids.length) return toast('削除する案件を選択してください。');
-  if ($('bulkDeleteTarget')) $('bulkDeleteTarget').textContent = `${ids.length}件の案件`;
-  if ($('bulkDeleteDialog')) $('bulkDeleteDialog').showModal();
-}
-
-async function confirmBulkDelete() {
-  const ids = [...S.selectedProjectIds];
-  if (!ids.length) return;
-  try {
-    await api(API.projects, { method: 'DELETE', body: { ids, ...actorPayload() } });
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    await load();
-    toast(`${ids.length}件の案件を削除しました。`);
-  } catch (error) {
-    let deleted = 0;
-    for (const id of ids) {
-      try { await api(`${API.projects}?id=${encodeURIComponent(id)}`, { method: 'DELETE', body: actorPayload() }); deleted++; } catch {}
-    }
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    await load();
-    toast(`${deleted}件の案件を削除しました。`);
-  }
-}
-
-function switchView(view) {
-  document.querySelectorAll('.nav,.view').forEach(node => node.classList.remove('active'));
-  document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
-  $(`${view}View`)?.classList.add('active');
-  if (view === 'history' && !S.historyLoaded) loadHistory();
-}
-
-function bindFixedEvents() {
-  $('projectForm').onsubmit = async event => {
-    event.preventDefault();
-    const employeeIds = checkedValues('employeeChoices');
-    if (!employeeIds.length) { $('employeeChoiceError').textContent = '担当者を1人以上選択してください。'; return; }
-    const id = $('projectId').value;
-    const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: $('displayName').value.trim(), productName: $('productName').value.trim(), client: $('client').value.trim(), employeeIds, employeeId: employeeIds[0], dueDate: $('dueDate').value, notes: $('notes').value.trim(), quantity: existing?.quantity || 0, spec: existing?.spec || '', ...actorPayload() };
-    try {
-      await api(API.projects, { method: id ? 'PUT' : 'POST', body });
-      $('projectDialog').close();
-      await load();
-      toast(id ? '更新しました' : '登録しました');
-    } catch (error) { $('projectError').textContent = error.message; }
-  };
-
-  $('readExcel').onclick = async () => {
-    const file = $('excelFile').files[0];
-    $('importReadError').textContent = '';
-    if (!file) { $('importReadError').textContent = 'Excelファイルを選択してください。'; return; }
-    try {
-      const data = await api(API.excel, { method: 'POST', body: { base64: await fileBase64(file) } });
-      S.importItems = data.items || [];
-      $('importClient').value = data.client || '';
-      $('importDisplayName').value = data.displayName || '';
-      $('importShipNo').value = 'S.';
-      $('importDueDate').value = fd(new Date());
-      $('importStep1').hidden = true;
-      $('importStep2').hidden = false;
-      renderImportRows();
-    } catch (error) { $('importReadError').textContent = error.message; }
-  };
-
-  $('applyImportCommon').onclick = () => {
-    const ids = checkedValues('importEmployeeChoices');
-    const date = $('importDueDate').value;
-    document.querySelectorAll('[data-import-employees]').forEach(container => {
-      container.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = ids.includes(input.value); });
-    });
-    document.querySelectorAll('.import-date').forEach(input => { if (date) input.value = date; });
-  };
-
-  $('backImport').onclick = () => { $('importStep1').hidden = false; $('importStep2').hidden = true; };
-  $('importRows').onchange = updateImportCount;
-
-  $('importForm').onsubmit = async event => {
-    event.preventDefault();
-    if ($('importStep2').hidden) return;
-    const rows = [...document.querySelectorAll('[data-import-row]')].filter(row => row.querySelector('.import-select').checked);
-    const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: $('importDisplayName').value.trim(), client: $('importClient').value.trim() };
-    const projects = rows.map(row => {
-      const ids = [...row.querySelectorAll('.import-row-employees input:checked')].map(input => input.value);
-      return { ...common, productName: row.querySelector('.import-product').value.trim(), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId: ids[0] || '', dueDate: row.querySelector('.import-date').value };
-    });
-    if (!projects.length) { $('importError').textContent = '登録する明細を選択してください。'; return; }
-    if (!common.displayName || projects.some(item => !item.productName || !item.employeeIds.length || !item.dueDate)) { $('importError').textContent = '表示名・製品名・担当者・納期を確認してください。'; return; }
-    $('importError').textContent = '';
-    try {
-      await api(API.projects, { method: 'POST', body: { projects, ...actorPayload() } });
-      $('importDialog').close();
-      await load();
-      toast(`${projects.length}件を登録しました`);
-    } catch (error) { $('importError').textContent = error.message; }
-  };
-
-  $('actorForm').onsubmit = event => {
-    event.preventDefault();
-    const id = document.querySelector('#actorChoices input:checked')?.value || '';
-    if (!id) { $('actorError').textContent = 'お名前を選択してください。'; return; }
-    setActor(id);
-    $('actorDialog').close();
-    toast(`${employeeName(id)}さんで開始します`);
-  };
-
-  $('actorSettingsForm').onsubmit = event => {
-    event.preventDefault();
-    const id = document.querySelector('#actorSettingsChoices input:checked')?.value || '';
-    if (!id) { $('actorSettingsError').textContent = 'お名前を選択してください。'; return; }
-    setActor(id);
-    $('actorSettingsDialog').close();
-    toast(`利用者を${employeeName(id)}さんに変更しました`);
-  };
-
-  $('refresh').onclick = () => load();
-  $('search').oninput = event => { S.q = event.target.value; renderSchedule(); renderDeadlines(); };
-  $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); };
-  $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); };
-  $('refreshHistory').onclick = loadHistory;
-  $('historyActionFilter').onchange = renderHistory;
-  $('historyActorFilter').onchange = renderHistory;
-  $('historySearch').oninput = renderHistory;
-  $('applyUpdate').onclick = async () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; await load(); toast('最新のデータに更新しました'); };
-  $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
-}
-
-function bindDelegatedEvents() {
-  document.body.addEventListener('change', event => {
-    const checkbox = event.target.closest('[data-select-project]');
-    if (!checkbox) return;
-    checkbox.checked ? S.selectedProjectIds.add(checkbox.dataset.selectProject) : S.selectedProjectIds.delete(checkbox.dataset.selectProject);
-    renderDeadlines();
-  });
-
-  document.body.addEventListener('submit', async event => {
-    const form = event.target.closest('[data-master]');
-    if (!form) return;
-    event.preventDefault();
-    const input = form.querySelector('input');
-    try { await api(API.masters, { method: 'POST', body: { type: form.dataset.master, name: input.value } }); input.value = ''; await load(); } catch (error) { toast(error.message); }
-  });
-
-  document.body.addEventListener('click', async event => {
-    const button = event.target.closest('button');
-    if (!button) return;
-    try {
-      if (button.dataset.view) switchView(button.dataset.view);
-      else if (button.id === 'actorSettingsButton') { renderActorChoices('actorSettingsChoices', S.actorEmployeeId); $('actorSettingsDialog').showModal(); }
-      else if (button.id === 'addProject' || button.dataset.add !== undefined) openProject();
-      else if (button.id === 'importExcel') openImport();
-      else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
-      else if (button.dataset.edit) openProject(button.dataset.edit);
-      else if (button.dataset.detail) openDetail(button.dataset.detail);
-      else if (button.dataset.detailEdit) { $('detailDialog').close(); openProject(button.dataset.detailEdit); }
-      else if (button.dataset.requestDelete) requestDelete(button.dataset.requestDelete);
-      else if (button.dataset.delete) requestDelete(button.dataset.delete);
-      else if (button.id === 'confirmDelete') await confirmDelete();
-      else if (button.id === 'selectVisible') { filtered().forEach(project => S.selectedProjectIds.add(project.id)); renderDeadlines(); }
-      else if (button.id === 'clearProjectSelection') { S.selectedProjectIds.clear(); renderDeadlines(); }
-      else if (button.id === 'bulkDeleteProjects') await bulkDeleteSelectedProjects();
-      else if (button.id === 'confirmBulkDelete') await confirmBulkDelete();
-      else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
-      else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
-      else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
-      else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
-      else if (button.dataset.move) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.id, action: 'move', direction: button.dataset.move } }); await load(); }
-      else if (button.dataset.mdelete && confirm('この項目を削除しますか？')) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
-    } catch (error) { toast(error.message); }
-  });
-}
-
-async function clearLegacyCacheOnce() {
-  const migrationKey = 'hikariPortal.cacheMigration.2.5.1';
-  if (localStorage.getItem(migrationKey)) return;
-
-  try {
-    if ('serviceWorker' in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map(registration => registration.unregister()));
-    }
-
-    if ('caches' in window) {
-      const cacheNames = await caches.keys();
-      await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
-    }
-  } catch (error) {
-    console.warn('旧キャッシュの削除に失敗しました。', error);
-  } finally {
-    localStorage.setItem(migrationKey, 'done');
+  .import-common{
+    grid-template-columns:1fr 1fr;
   }
 }
 
-async function init() {
-  await clearLegacyCacheOnce();
-  ensureActorUi();
-  bindFixedEvents();
-  bindDelegatedEvents();
-  await load();
-  startPolling();
+/* スマートフォン */
+
+@media(max-width:700px){
+
+  main{
+    padding:10px;
+  }
+
+  .topbar{
+    padding:10px;
+  }
+
+  .brand p{
+    display:none;
+  }
+
+  nav{
+    padding:0 6px;
+    overflow-x:auto;
+  }
+
+  .nav{
+    padding:13px 14px;
+    white-space:nowrap;
+  }
+
+  .toolbar{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .toolbar input{
+    width:100%;
+  }
+
+  .toolbar-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+
+  .toolbar-actions button{
+    width:100%;
+  }
+
+  .deadline-selection-toolbar{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+
+  .deadline-selection-toolbar strong{
+    margin-left:0;
+    text-align:center;
+  }
+
+  .deadline-selection-toolbar .danger{
+    width:100%;
+  }
+
+  .deadline{
+    grid-template-columns:32px 38px minmax(0,1fr);
+    gap:8px;
+    padding:11px;
+  }
+
+  .deadline>div{
+    min-width:0;
+  }
+
+  .deadline>button[data-edit],
+  .deadline>button[data-delete]{
+    grid-column:auto;
+    width:100%;
+    margin-top:3px;
+  }
+
+  .deadline>button[data-edit]{
+    grid-column:2;
+  }
+
+  .deadline>button[data-delete]{
+    grid-column:3;
+  }
+
+  .master-item{
+    align-items:flex-start;
+    gap:8px;
+  }
+
+  .master-actions{
+    max-width:170px;
+  }
+
+  .import-common{
+    grid-template-columns:1fr;
+  }
+
+  .import-tools{
+    align-items:stretch;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  dialog footer{
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  .detail-actions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .detail-actions>div{
+    width:100%;
+  }
+
+  .detail-actions button{
+    flex:1;
+  }
 }
 
-init();
+
+/* Ver2.5.1 利用者選択 */
+.current-actor-status{
+  border:1px solid hsl(var(--employee-hue,215) 45% 72%);
+  background:hsl(var(--employee-hue,215) 70% 96%);
+  color:hsl(var(--employee-hue,215) 55% 28%);
+  border-radius:999px;
+  padding:9px 14px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.current-actor-status:hover{
+  filter:brightness(.98);
+}
+.actor-settings-button{
+  white-space:nowrap;
+}
+.employee-fieldset{
+  border:1px solid #dfe4ec;
+  border-radius:12px;
+  padding:12px;
+}
+.employee-choices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:9px;
+}
+.employee-choice{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:9px 12px;
+  border:1px solid hsl(var(--employee-hue,215) 45% 75%);
+  border-radius:999px;
+  background:hsl(var(--employee-hue,215) 70% 97%);
+  cursor:pointer;
+}
+.employee-choice:has(input:checked){
+  background:hsl(var(--employee-hue,215) 70% 90%);
+  box-shadow:0 0 0 2px hsl(var(--employee-hue,215) 55% 55% / .22);
+}
+.employee-choice input{
+  margin:0;
+  accent-color:hsl(var(--employee-hue,215) 60% 45%);
+}
+.actor-dialog{
+  width:min(560px,92vw);
+}
+@media (max-width:700px){
+  .topbar-actions{flex-wrap:wrap;justify-content:flex-end}
+  .current-actor-status{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+}
+
+
+/* Ver2.6.0 業務UI・材料費計算 */
+:root{--navy:#0d1b3d;--navy-2:#132b58;--line:#dbe3ef;--surface:#fff;--soft:#f4f7fb;--accent:#1769e0;--text:#152033;--muted:#667085}
+body{background:linear-gradient(180deg,#eef3f9 0,#f7f9fc 220px);color:var(--text)}
+.topbar{box-shadow:0 8px 24px rgba(13,27,61,.12)}
+nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rgba(13,27,61,.05)}
+.nav{border-radius:9px 9px 0 0;font-weight:700}.nav.active{background:var(--navy);color:#fff}
+.view{animation:viewIn .18s ease}@keyframes viewIn{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+.eyebrow,.result-kicker{display:block;color:var(--accent);font-size:11px;font-weight:900;letter-spacing:.14em}
+.calculator-head{padding:4px 0 14px}.calculator-head h2{margin:4px 0}
+.calculator-tabs{display:flex;gap:8px;padding:6px;background:#e9eef6;border-radius:14px;margin-bottom:18px;max-width:640px}.calculator-tab{flex:1;border:0;border-radius:10px;padding:12px 16px;background:transparent;font-weight:800;color:#516074}.calculator-tab.active{background:#fff;color:var(--navy);box-shadow:0 3px 12px rgba(13,27,61,.12)}
+.calculator-panel{display:none}.calculator-panel.active{display:block}
+.calculator-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;align-items:start}.compact-layout{max-width:920px}
+.calculator-card,.result-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 10px 30px rgba(13,27,61,.07)}
+.calculator-card{display:grid;gap:16px}.calculator-card label{display:grid;gap:7px;font-weight:750;color:#344054}.calculator-card input,.calculator-card select{min-height:46px;border:1px solid #cbd5e1;border-radius:10px;padding:9px 11px;background:#fff;font-size:16px}.calculator-card input:focus,.calculator-card select:focus{outline:3px solid rgba(23,105,224,.15);border-color:var(--accent)}
+.card-title{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #edf1f6}.card-title>div{display:flex;align-items:center;gap:10px}.card-title h3{margin:0}.step-badge{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--navy);color:#fff;font-size:12px;font-weight:900}.text-button{border:0;background:none;color:var(--accent);font-weight:800}.dimension-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.unit-input{display:grid;grid-template-columns:1fr 80px;gap:7px}.calculator-submit{min-height:50px;font-size:16px}
+.result-card{background:linear-gradient(145deg,var(--navy),var(--navy-2));color:#fff;position:sticky;top:18px}.result-card h3{margin:5px 0 20px}.result-kicker{color:#80b4ff}.main-result{padding:18px;border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.08)}.main-result span{display:block;font-size:13px;color:#cbd8ee}.main-result strong{display:block;font-size:32px;margin-top:7px}.result-list{margin:18px 0 0}.result-list>div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.12)}.result-list dt{color:#cbd8ee}.result-list dd{margin:0;text-align:right;font-weight:800}.formula-note{margin:16px 0 0;color:#b9c8e1;font-size:12px}.form-actions{display:flex;justify-content:flex-end;gap:10px}
+.material-master-list{display:grid;gap:10px}.material-row{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}.material-row>div:first-child{display:grid;gap:3px}.material-row span,.material-row small{color:var(--muted)}.material-row>div:last-child{display:flex;gap:6px;flex-wrap:wrap}.material-row button{padding:8px 10px}
+@media(max-width:850px){.calculator-layout{grid-template-columns:1fr}.result-card{position:static}.calculator-tabs{max-width:none}.main-result strong{font-size:28px}}
+@media(max-width:600px){.calculator-card,.result-card{padding:16px;border-radius:14px}.dimension-grid{grid-template-columns:1fr}.calculator-tabs{overflow:auto}.calculator-tab{white-space:nowrap}.material-row{align-items:flex-start;flex-direction:column}.material-row>div:last-child{width:100%}.material-row button{flex:1}.main-result strong{font-size:25px}}
+
+/* Ver2.6.3 共通・明細担当者：複数選択プルダウン */
+.import-common-employee-label{
+  min-width:0;
+}
+.import-common-employee-label>span{
+  display:block;
+}
+.employee-multi-dropdown{
+  position:relative;
+  width:100%;
+}
+.employee-multi-dropdown>summary{
+  min-height:44px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  padding:8px 12px;
+  border:1px solid #cbd6e5;
+  border-radius:10px;
+  background:#fff;
+  color:#172033;
+  font-weight:750;
+  cursor:pointer;
+  list-style:none;
+}
+.employee-multi-dropdown>summary::-webkit-details-marker{display:none}
+.employee-multi-dropdown>summary::after{
+  content:'⌄';
+  flex:0 0 auto;
+  font-size:16px;
+}
+.employee-multi-dropdown[open]>summary::after{content:'⌃'}
+.employee-multi-label{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.employee-multi-count{
+  flex:0 0 auto;
+  color:#67758a;
+  font-size:12px;
+}
+.employee-multi-panel{
+  position:absolute;
+  z-index:30;
+  top:calc(100% + 6px);
+  right:0;
+  min-width:220px;
+  padding:10px;
+  display:grid;
+  gap:8px;
+  border:1px solid #cad5e5;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 14px 32px rgba(23,32,51,.18);
+}
+.employee-multi-panel .employee-choice{
+  width:100%;
+  justify-content:flex-start;
+  border-radius:9px;
+  padding:8px 10px;
+}
+.employee-multi-close{
+  width:100%;
+  margin-top:2px;
+}
+.import-assignee-select-wrap.auto-etching .employee-multi-dropdown>summary{
+  border-color:#9eddb9;
+  background:#ecfbf3;
+  color:#145b36;
+}
+.import-auto-note{display:none!important}
+@media(max-width:700px){
+  .employee-multi-panel{left:0;right:auto;min-width:min(260px,78vw)}
+}
+
+/* Ver2.7.0 Phase1: 更新ボタンの操作フィードバック */
+.refresh-control{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:3px;
+}
+
+.refresh-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-width:106px;
+  transition:background-color .18s,border-color .18s,transform .12s,box-shadow .18s;
+}
+
+.refresh-button:active{
+  transform:translateY(1px) scale(.98);
+}
+
+.refresh-icon{
+  display:inline-block;
+  font-size:17px;
+  line-height:1;
+}
+
+.refresh-button.is-loading{
+  background:#eef4ff;
+  border-color:#8aa9d4;
+  box-shadow:0 0 0 3px rgba(69,121,184,.13);
+}
+
+.refresh-button.is-loading .refresh-icon{
+  animation:refresh-spin .75s linear infinite;
+}
+
+.refresh-button.is-success{
+  background:#eaf8ef;
+  border-color:#71ba8b;
+  color:#145c31;
+}
+
+.refresh-button.is-success .refresh-icon{
+  transform:rotate(360deg);
+}
+
+.last-updated{
+  color:#667085;
+  font-size:11px;
+  white-space:nowrap;
+}
+
+@keyframes refresh-spin{
+  to{transform:rotate(360deg)}
+}
+
+/* Ver2.7.0 Phase1: 今日の行を見つけやすくする */
+#scheduleTable tr[data-schedule-date] > th{
+  scroll-margin-top:48px;
+}
+
+#scheduleTable tr[data-schedule-date] td,
+#scheduleTable tr[data-schedule-date] th{
+  transition:background-color .2s;
+}
+
+/* Ver2.7.0 Phase1: 職員マスタは通常折りたたみ */
+.master-card-collapsible{
+  grid-column:1 / -1;
+  padding:0;
+  overflow:hidden;
+}
+
+.master-card-collapsible summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:16px;
+  cursor:pointer;
+  font-weight:800;
+  list-style:none;
+  user-select:none;
+}
+
+.master-card-collapsible summary::-webkit-details-marker{
+  display:none;
+}
+
+.master-card-collapsible summary::after{
+  content:'＋';
+  flex:0 0 auto;
+  font-size:20px;
+  color:#53627a;
+}
+
+.master-card-collapsible[open] summary::after{
+  content:'−';
+}
+
+.master-card-collapsible summary small{
+  margin-left:auto;
+  color:#667085;
+  font-size:12px;
+  font-weight:500;
+}
+
+.master-card-collapsible[open] summary{
+  border-bottom:1px solid #e5e9f0;
+}
+
+.master-card-body{
+  padding:16px;
+}
+
+@media(max-width:700px){
+  .refresh-control{align-items:stretch;width:100%}
+  .refresh-button{width:100%}
+  .last-updated{text-align:center}
+  .master-card-collapsible summary{align-items:flex-start}
+  .master-card-collapsible summary small{display:none}
+}
+
+
+/* =========================================================
+   Ver2.7.1: マスタ管理画面のレイアウト改善
+   ========================================================= */
+
+/* 3列で窮屈にならないよう、デスクトップは最大2列に固定 */
+.master-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:20px;
+  align-items:start;
+}
+
+.master-card{
+  min-width:0;
+  padding:20px;
+  border-color:#d9e0ea;
+  box-shadow:0 4px 14px rgba(31,45,61,.05);
+}
+
+.master-card h3{
+  margin:0 0 14px;
+  font-size:17px;
+  line-height:1.4;
+  white-space:nowrap;
+}
+
+.master-card form{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.master-card form button{
+  min-width:68px;
+  white-space:nowrap;
+}
+
+.master-item{
+  display:grid;
+  grid-template-columns:minmax(120px,1fr) auto;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+  padding:12px 0;
+}
+
+.master-item>span{
+  min-width:0;
+  font-weight:700;
+  line-height:1.45;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+}
+
+.master-actions{
+  display:grid;
+  grid-template-columns:repeat(2,34px) repeat(3,max-content);
+  align-items:center;
+  gap:6px;
+  flex-wrap:nowrap;
+  max-width:none;
+}
+
+.master-actions button{
+  min-height:32px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:700;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.master-actions button[data-move]{
+  width:34px;
+  min-width:34px;
+  padding:0;
+  font-size:15px;
+}
+
+.master-actions button[data-mdelete]{
+  color:#b42318;
+  border-color:#f0c9c5;
+  background:#fffafa;
+}
+
+.master-actions button:disabled{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+.master-card-collapsible{
+  padding:0;
+}
+
+.master-card-collapsible summary{
+  padding:18px 20px;
+}
+
+.master-card-body{
+  padding:20px;
+}
+
+/* 一般的なノートPC幅では1列にして、項目名とボタンを守る */
+@media(max-width:1180px){
+  .master-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* スマートフォンでは操作ボタンを次の行へ */
+@media(max-width:700px){
+  .master-card{
+    padding:16px;
+  }
+
+  .master-card form{
+    grid-template-columns:1fr;
+  }
+
+  .master-card form button{
+    width:100%;
+  }
+
+  .master-item{
+    grid-template-columns:1fr;
+    gap:9px;
+  }
+
+  .master-actions{
+    grid-template-columns:repeat(2,34px) repeat(3,minmax(0,1fr));
+    width:100%;
+  }
+
+  .master-actions button:not([data-move]){
+    width:100%;
+    padding-left:5px;
+    padding-right:5px;
+  }
+
+  .master-card-collapsible summary{
+    padding:16px;
+  }
+
+  .master-card-body{
+    padding:16px;
+  }
+}
