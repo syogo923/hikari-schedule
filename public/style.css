@@ -1397,3 +1397,110 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
     grid-template-columns:24px minmax(0,1fr) auto;
   }
 }
+
+
+/* Ver2.8.1: ごみ箱 */
+.trash-nav{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+}
+.nav-count{
+  min-width:22px;
+  height:22px;
+  padding:0 6px;
+  display:inline-grid;
+  place-items:center;
+  border-radius:999px;
+  background:#dc2626;
+  color:#fff;
+  font-size:12px;
+  font-weight:900;
+  line-height:1;
+}
+.trash-list{
+  display:grid;
+  gap:12px;
+}
+.trash-empty{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+  padding:32px 24px;
+  text-align:center;
+}
+.trash-empty strong{
+  font-size:18px;
+  color:#334155;
+}
+.trash-empty span{
+  color:#64748b;
+}
+.trash-item{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:18px;
+  padding:17px 18px;
+  border:1px solid #dce3ec;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 4px 14px rgba(15,23,42,.04);
+}
+.trash-item-main{
+  min-width:0;
+}
+.trash-item-title{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  gap:8px 12px;
+  margin-bottom:10px;
+}
+.trash-item-title strong{
+  color:#172554;
+  font-size:17px;
+}
+.trash-item-title span{
+  color:#475569;
+  font-weight:700;
+}
+.trash-item dl{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 22px;
+  margin:0;
+}
+.trash-item dl>div{
+  display:flex;
+  gap:6px;
+}
+.trash-item dt{
+  color:#64748b;
+  font-size:12px;
+  font-weight:700;
+}
+.trash-item dd{
+  margin:0;
+  color:#334155;
+  font-size:12px;
+  font-weight:700;
+}
+.trash-item-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.trash-item-actions button{
+  white-space:nowrap;
+}
+@media(max-width:720px){
+  .trash-item{
+    grid-template-columns:1fr;
+    gap:14px;
+  }
+  .trash-item-actions{
+    justify-content:flex-end;
+  }
+}
