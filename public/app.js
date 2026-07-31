@@ -151,6 +151,9 @@ async function api(url, options = {}) {
   if (!response.ok) throw new Error(data.error || '通信に失敗しました。');
   return data;
 }
+// ===== Common Utility Helpers =====
+function isBlank(v){ return safeTrim(v)===''; }
+
 
 function normalizeShipNo(value) {
   let text = String(value || '').trim();
