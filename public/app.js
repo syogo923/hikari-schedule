@@ -153,6 +153,8 @@ async function api(url, options = {}) {
 }
 // ===== Common Utility Helpers =====
 function isBlank(v){ return safeTrim(v)===''; }
+function isPresent(v){ return !isBlank(v); }
+
 
 
 function normalizeShipNo(value) {
