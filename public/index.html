@@ -188,7 +188,7 @@
         <input
           id="search"
           type="search"
-          placeholder="番船・表示名・製品・得意先・担当者を検索"
+          placeholder="番船・表示名・得意先・担当者を検索"
           autocomplete="off"
         >
 
@@ -348,7 +348,7 @@
           <input
             id="historySearch"
             type="search"
-            placeholder="番船・表示名・製品名を検索"
+            placeholder="番船・表示名を検索"
             autocomplete="off"
           >
         </label>
@@ -517,26 +517,12 @@
           id="displayName"
           list="displayNameList"
           placeholder="入力または候補から選択"
-          required
           autocomplete="off"
         >
 
         <datalist id="displayNameList"></datalist>
       </label>
 
-      <label>
-        製品名
-
-        <input
-          id="productName"
-          list="productNameList"
-          placeholder="入力または候補から選択"
-          required
-          autocomplete="off"
-        >
-
-        <datalist id="productNameList"></datalist>
-      </label>
 
       <label>
         得意先
@@ -551,18 +537,6 @@
         <datalist id="clientList"></datalist>
       </label>
 
-      <!--
-        Ver2.4互換用の担当者選択欄です。
-        Ver2.5のapp.js導入後は非表示になります。
-      -->
-      <label id="legacyEmployeeLabel">
-        担当者
-
-        <select
-          id="employeeId"
-          required
-        ></select>
-      </label>
 
       <!--
         Ver2.5の複数担当者選択欄です。
@@ -575,11 +549,10 @@
       >
         <legend>
           担当者
-          <span class="required-mark">必須</span>
         </legend>
 
         <p class="field-help">
-          担当する社員を1人以上選択してください。
+          必要な場合だけ選択してください。
         </p>
 
         <div
@@ -599,7 +572,6 @@
         <input
           id="dueDate"
           type="date"
-          required
         >
       </label>
 
@@ -725,7 +697,6 @@
             <input
               id="importDisplayName"
               list="displayNameList"
-              required
               autocomplete="off"
             >
           </label>
@@ -746,7 +717,6 @@
             <input
               id="importDueDate"
               type="date"
-              required
             >
           </label>
 
@@ -802,7 +772,6 @@
             <thead>
               <tr>
                 <th>取込</th>
-                <th>製品名</th>
                 <th>数量</th>
                 <th>仕様・備考</th>
                 <th>担当者</th>
@@ -986,10 +955,7 @@
         <input id="internalScheduleId" type="hidden">
         <label>予定名<input id="internalScheduleTitle" required maxlength="80" placeholder="給与支給・請求締め・棚卸など"></label>
         <div class="internal-schedule-grid">
-          <label>種類<select id="internalScheduleType"><option value="monthly">毎月</option><option value="yearly">毎年</option><option value="once">一回のみ</option></select></label>
-          <label id="internalMonthLabel" hidden>月<select id="internalScheduleMonth"><option value="1">1月</option><option value="2">2月</option><option value="3">3月</option><option value="4">4月</option><option value="5">5月</option><option value="6">6月</option><option value="7">7月</option><option value="8">8月</option><option value="9">9月</option><option value="10">10月</option><option value="11">11月</option><option value="12">12月</option></select></label>
-          <label id="internalDayLabel">日<select id="internalScheduleDay"><option value="1">1日</option><option value="2">2日</option><option value="3">3日</option><option value="4">4日</option><option value="5">5日</option><option value="6">6日</option><option value="7">7日</option><option value="8">8日</option><option value="9">9日</option><option value="10">10日</option><option value="11">11日</option><option value="12">12日</option><option value="13">13日</option><option value="14">14日</option><option value="15">15日</option><option value="16">16日</option><option value="17">17日</option><option value="18">18日</option><option value="19">19日</option><option value="20">20日</option><option value="21">21日</option><option value="22">22日</option><option value="23">23日</option><option value="24">24日</option><option value="25">25日</option><option value="26">26日</option><option value="27">27日</option><option value="28">28日</option><option value="29">29日</option><option value="30">30日</option><option value="31">31日</option></select></label>
-          <label id="internalDateLabel" hidden>日付<input id="internalScheduleDate" type="date"></label>
+          <label id="internalDayLabel">毎月<select id="internalScheduleDay"><option value="1">1日</option><option value="2">2日</option><option value="3">3日</option><option value="4">4日</option><option value="5">5日</option><option value="6">6日</option><option value="7">7日</option><option value="8">8日</option><option value="9">9日</option><option value="10">10日</option><option value="11">11日</option><option value="12">12日</option><option value="13">13日</option><option value="14">14日</option><option value="15">15日</option><option value="16">16日</option><option value="17">17日</option><option value="18">18日</option><option value="19">19日</option><option value="20">20日</option><option value="21">21日</option><option value="22">22日</option><option value="23">23日</option><option value="24">24日</option><option value="25">25日</option><option value="26">26日</option><option value="27">27日</option><option value="28">28日</option><option value="29">29日</option><option value="30">30日</option><option value="31">31日</option></select></label>
           <label>時刻<input id="internalScheduleTime" type="time"></label>
         </div>
         <label>補足<input id="internalScheduleNote" maxlength="120" placeholder="任意"></label>
