@@ -1,3 +1,4 @@
+// Ver3.0β3 - Safe Refactoring
 /* 光ポータル Ver3.0β2 - Safe Refactoring
    - コメント整理
    - セクション整理
@@ -114,6 +115,7 @@ function portalConfirm({
 // Danger Confirmation Helpers
 // ==========================
 
+// ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
