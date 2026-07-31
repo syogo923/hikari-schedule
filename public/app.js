@@ -167,6 +167,9 @@ function normalizeShipNo(value) {
   return text;
 }
 
+function noop(){}
+
+
 function ordered(type) {
   return [...(S.masters[type] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
