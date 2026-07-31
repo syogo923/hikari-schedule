@@ -137,6 +137,8 @@ function byId(id){ return document.getElementById(id); }
 function isNil(v){ return v===null || v===undefined; }
 
 
+
+function safeTrim(v){ return isNil(v) ? '' : String(v).trim(); }
 async function api(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
