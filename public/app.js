@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.0 正式版 - Stable Release */
+/* 光ポータル Ver3.1 - 社内予定・付箋・月間カレンダー・コピー機能 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -26,6 +26,8 @@ const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
 const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
 const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
 const STORAGE_PROJECT_LIFECYCLE = 'hikariPortal.projectLifecycle.v1';
+const STORAGE_INTERNAL_SCHEDULES = 'hikariPortal.internalSchedules.v1';
+const STORAGE_STICKY_NOTES = 'hikariPortal.stickyNotes.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -45,7 +47,12 @@ const S = {
   materials: [],
   assigneeProgress: {},
   trash: [],
-  projectLifecycle: {}
+  projectLifecycle: {},
+  internalSchedules: [],
+  stickyNotes: {},
+  calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  calendarQ: '',
+  calendarEmployeeId: ''
 };
 
 const $ = id => byId(id);
@@ -138,7 +145,7 @@ function confirmDangerAction(options) {
 function byId(id){ return document.getElementById(id); }
 function isNil(v){ return v===null || v===undefined; }
 
-function safeTrim(v){ return isNil(v) ? '' : safeTrim(v); }
+function safeTrim(v){ return isNil(v) ? '' : String(v).trim(); }
 async function api(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
@@ -155,6 +162,131 @@ async function api(url, options = {}) {
 function isBlank(v){ return safeTrim(v)===''; }
 function isPresent(v){ return !isBlank(v); }
 function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
+
+function loadInternalTools() {
+  try {
+    const schedules = JSON.parse(localStorage.getItem(STORAGE_INTERNAL_SCHEDULES) || '[]');
+    S.internalSchedules = Array.isArray(schedules) ? schedules : [];
+  } catch { S.internalSchedules = []; }
+  try {
+    const notes = JSON.parse(localStorage.getItem(STORAGE_STICKY_NOTES) || '{}');
+    S.stickyNotes = notes && typeof notes === 'object' && !Array.isArray(notes) ? notes : {};
+  } catch { S.stickyNotes = {}; }
+}
+
+function saveInternalSchedules() {
+  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  renderSchedule();
+  renderInternalScheduleList();
+}
+
+function saveStickyNotes() {
+  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  renderSchedule();
+}
+
+function internalSchedulesForDate(date) {
+  const weekday = new Date(`${date}T00:00:00`).getDay();
+  return S.internalSchedules.filter(item => item.type === 'once' ? item.date === date : Number(item.weekday) === weekday)
+    .sort((a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')) || String(a.title).localeCompare(String(b.title), 'ja'));
+}
+
+function internalScheduleHtml(date) {
+  const items = internalSchedulesForDate(date);
+  if (!items.length) return '<button type="button" class="internal-empty" data-open-internal-schedule>＋</button>';
+  return items.map(item => `<button type="button" class="internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}"><small>${esc(item.time || '')}${item.type === 'weekly' ? ' 毎週' : ''}</small><strong>${esc(item.title)}</strong>${item.note ? `<span>${esc(item.note)}</span>` : ''}</button>`).join('');
+}
+
+function stickyNoteCellHtml(date) {
+  const text = safeTrim(S.stickyNotes[date]);
+  return `<button type="button" class="sticky-cell-button ${text ? 'has-note' : ''}" data-sticky-date="${esc(date)}" title="${text ? esc(text) : '付箋を入力'}">${text ? `<span>${esc(text)}</span>` : '<span class="sticky-placeholder">＋</span>'}</button>`;
+}
+
+function renderInternalScheduleList() {
+  const host = $('internalScheduleList');
+  if (!host) return;
+  const weekdayNames = ['日','月','火','水','木','金','土'];
+  host.innerHTML = S.internalSchedules.length ? [...S.internalSchedules].sort((a,b) => String(a.type).localeCompare(String(b.type)) || Number(a.weekday ?? 9)-Number(b.weekday ?? 9) || String(a.time||'').localeCompare(String(b.time||''))).map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${item.type === 'weekly' ? `毎週${weekdayNames[Number(item.weekday)]}曜` : esc(jp(item.date))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
+}
+
+function resetInternalScheduleForm() {
+  $('internalScheduleForm')?.reset();
+  $('internalScheduleId').value = '';
+  $('internalScheduleType').value = 'weekly';
+  updateInternalScheduleTypeUi();
+}
+
+function updateInternalScheduleTypeUi() {
+  const once = $('internalScheduleType')?.value === 'once';
+  if ($('internalWeekdayLabel')) $('internalWeekdayLabel').hidden = once;
+  if ($('internalDateLabel')) $('internalDateLabel').hidden = !once;
+  if ($('internalScheduleDate')) $('internalScheduleDate').required = once;
+}
+
+function openInternalSchedule(id = '') {
+  resetInternalScheduleForm();
+  const item = S.internalSchedules.find(x => x.id === id);
+  if (item) {
+    $('internalScheduleId').value = item.id;
+    $('internalScheduleTitle').value = item.title || '';
+    $('internalScheduleType').value = item.type || 'weekly';
+    $('internalScheduleWeekday').value = String(item.weekday ?? 1);
+    $('internalScheduleDate').value = item.date || '';
+    $('internalScheduleTime').value = item.time || '';
+    $('internalScheduleNote').value = item.note || '';
+    updateInternalScheduleTypeUi();
+  }
+  renderInternalScheduleList();
+  $('internalScheduleDialog').showModal();
+}
+
+function openStickyNote(date) {
+  $('stickyNoteDate').value = date;
+  $('stickyNoteTitle').textContent = `${jp(date)}の付箋`;
+  $('stickyNoteText').value = S.stickyNotes[date] || '';
+  $('stickyNoteDialog').showModal();
+  requestAnimationFrame(() => $('stickyNoteText').focus());
+}
+
+function calendarProjectBadge(group) {
+  const project = group.representative;
+  const status = groupLifecycleStatus(group);
+  return `<button type="button" class="calendar-project status-${esc(status)}" data-group-detail="${esc(project.id)}" title="${esc(project.shipNo)} ${esc(project.displayName || '')}"><strong>${esc(project.shipNo || '—')}</strong>${project.displayName ? `<span>${esc(project.displayName)}</span>` : ''}</button>`;
+}
+
+function renderCalendar() {
+  const host = $('monthlyCalendar');
+  if (!host) return;
+  const year = S.calendarMonth.getFullYear(), month = S.calendarMonth.getMonth();
+  $('calendarMonth').textContent = `${year}年${month + 1}月`;
+  const filter = $('calendarEmployeeFilter');
+  if (filter) {
+    const current = S.calendarEmployeeId;
+    filter.innerHTML = '<option value="">全担当者</option>' + ordered('employees').filter(x => x.active !== false).map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+    filter.value = current;
+  }
+  const q = safeTrim(S.calendarQ).toLowerCase();
+  const groups = groupProjects(S.projects).filter(group => {
+    const p = group.representative;
+    const text = [p.shipNo,p.displayName,p.productName,p.client,groupEmployeeNames(group)].join(' ').toLowerCase();
+    return (!q || text.includes(q)) && (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId));
+  });
+  const byDate = new Map();
+  groups.forEach(group => group.dueDates.forEach(date => { if (!byDate.has(date)) byDate.set(date, []); byDate.get(date).push(group); }));
+  const firstDay = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  const prevDays = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i=0;i<42;i++) {
+    let d, other=false;
+    if (i < firstDay) { d = new Date(year, month-1, prevDays-firstDay+i+1); other=true; }
+    else if (i >= firstDay+days) { d = new Date(year, month+1, i-firstDay-days+1); other=true; }
+    else d = new Date(year,month,i-firstDay+1);
+    const date=fd(d), items=byDate.get(date)||[];
+    cells.push(`<div class="calendar-day ${other?'other-month':''} ${date===fd(new Date())?'today':''}"><div class="calendar-day-number">${d.getDate()}</div><div class="calendar-day-projects">${items.slice(0,5).map(calendarProjectBadge).join('')}${items.length>5?`<span class="calendar-more">ほか${items.length-5}件</span>`:''}</div></div>`);
+  }
+  host.innerHTML = '<div class="calendar-weekdays">'+['日','月','火','水','木','金','土'].map(x=>`<div>${x}</div>`).join('')+'</div><div class="calendar-grid">'+cells.join('')+'</div>';
+}
 
 function normalizeShipNo(value) {
   let text = safeTrim(value || '');
@@ -782,13 +914,13 @@ function renderSchedule() {
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
   const groups = groupProjects(filtered());
-  let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
+  let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '<th class="internal-col">社内スケジュール</th><th class="sticky-col">付箋</th></tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
     html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
       const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
-    }).join('') + '</tr>';
+    }).join('') + `<td class="internal-schedule-cell">${internalScheduleHtml(date)}</td><td class="sticky-note-cell">${stickyNoteCellHtml(date)}</td></tr>`;
   }
   html += '</tbody>';
   if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
@@ -880,6 +1012,8 @@ function render() {
   renderDeadlines();
   renderMasters();
   renderTrash();
+  renderCalendar();
+  renderInternalScheduleList();
   fillSelects();
 }
 
@@ -918,7 +1052,7 @@ function openGroupDetail(id) {
       </div>
       <div class="group-detail-line-actions">
         <button type="button" class="secondary" data-detail="${esc(item.id)}">明細詳細</button>
-        <button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
+        <button type="button" class="secondary" data-copy-project="${esc(item.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
         <button type="button" class="danger ghost-danger" data-request-delete="${esc(item.id)}">ごみ箱へ</button>
       </div>
     </article>`).join('');
@@ -937,7 +1071,7 @@ function openDetail(id, effect = '') {
   if (!project) return toast('案件が見つかりません。');
   const group = projectGroup(project);
   const backButton = group && group.projects.length > 1 ? `<button type="button" class="detail-back-button" data-group-detail="${esc(project.id)}">← 案件明細一覧へ</button>` : '';
-  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-copy-project="${esc(project.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -1249,6 +1383,7 @@ function switchView(view) {
   $(`${view}View`)?.classList.add('active');
   if (view === 'history' && !S.historyLoaded) loadHistory();
   if (view === 'home') requestAnimationFrame(() => scrollScheduleToToday());
+  if (view === 'calendar') renderCalendar();
 }
 
 function bindFixedEvents() {
@@ -1378,6 +1513,36 @@ function bindFixedEvents() {
   $('historySearch').oninput = renderHistory;
   $('applyUpdate').onclick = async () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; await load(); toast('最新のデータに更新しました'); };
   $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
+  $('manageInternalSchedule').onclick = () => openInternalSchedule();
+  $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
+  $('resetInternalSchedule').onclick = resetInternalScheduleForm;
+  $('internalScheduleForm').onsubmit = event => {
+    event.preventDefault();
+    const type = $('internalScheduleType').value;
+    const item = {
+      id: $('internalScheduleId').value || `internal-${Date.now()}`,
+      title: safeTrim($('internalScheduleTitle').value),
+      type,
+      weekday: type === 'weekly' ? Number($('internalScheduleWeekday').value) : null,
+      date: type === 'once' ? $('internalScheduleDate').value : '',
+      time: $('internalScheduleTime').value,
+      note: safeTrim($('internalScheduleNote').value)
+    };
+    if (!item.title || (type === 'once' && !item.date)) return toast('予定名と日付を確認してください。');
+    const index = S.internalSchedules.findIndex(x => x.id === item.id);
+    if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
+    saveInternalSchedules(); resetInternalScheduleForm(); toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+  };
+  $('stickyNoteForm').onsubmit = event => {
+    event.preventDefault(); const date=$('stickyNoteDate').value, text=safeTrim($('stickyNoteText').value);
+    if (text) S.stickyNotes[date]=text; else delete S.stickyNotes[date];
+    saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'付箋を保存しました':'付箋を消しました');
+  };
+  $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
+  $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
+  $('calendarNext').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()+1,1); renderCalendar(); };
+  $('calendarSearch').oninput = event => { S.calendarQ=event.target.value; renderCalendar(); };
+  $('calendarEmployeeFilter').onchange = event => { S.calendarEmployeeId=event.target.value; renderCalendar(); };
 }
 
 function bindDelegatedEvents() {
@@ -1435,6 +1600,18 @@ function bindDelegatedEvents() {
         $('actorSettingsDialog').showModal();
       }
       else if (button.id === 'addProject' || button.dataset.add !== undefined) openProject();
+      else if (button.dataset.stickyDate) openStickyNote(button.dataset.stickyDate);
+      else if (button.dataset.openInternalSchedule !== undefined) openInternalSchedule(button.dataset.internalId || '');
+      else if (button.dataset.editInternal) openInternalSchedule(button.dataset.editInternal);
+      else if (button.dataset.deleteInternal) {
+        const item=S.internalSchedules.find(x=>x.id===button.dataset.deleteInternal);
+        const approved=await confirmDangerAction({title:'社内予定を削除しますか？',message:'登録済みの社内予定から削除します。',detail:item?.title||'',confirmText:'削除する'});
+        if(approved){S.internalSchedules=S.internalSchedules.filter(x=>x.id!==button.dataset.deleteInternal);saveInternalSchedules();toast('社内予定を削除しました');}
+      }
+      else if (button.dataset.copyProject) {
+        const source=S.projects.find(x=>x.id===button.dataset.copyProject);
+        if(source){ $('detailDialog')?.close(); openProject(); $('shipNo').value=source.shipNo||''; $('displayName').value=source.displayName||''; $('productName').value=source.productName||''; $('client').value=source.client||''; $('dueDate').value=source.dueDate||''; $('notes').value=source.notes||''; renderEmployeeCheckboxes('employeeChoices',projectEmployeeIds(source)); toast('案件内容をコピーしました。納期などを確認して登録してください。'); }
+      }
       else if (button.id === 'importExcel') openImport();
       else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
       else if (button.dataset.edit) openProject(button.dataset.edit);
@@ -1589,6 +1766,7 @@ async function init() {
   loadAssigneeProgress();
   loadTrash();
   loadProjectLifecycle();
+  loadInternalTools();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();
