@@ -638,8 +638,63 @@ function filtered() {
   ].join(' ').toLowerCase().includes(q));
 }
 
-function projectCard(project, employeeId) {
-  return `<button class="job ${project.completed ? 'done' : ''} lifecycle-${esc(projectLifecycle(project).status)}" style="${employeeColorStyle(employeeId)}" data-detail="${esc(project.id)}"><span class="job-topline"><b>${esc(project.shipNo || '—')}</b>${lifecycleBadgeHtml(project, true)}</span><span>${esc(project.displayName)}</span><small>${esc(project.productName)}</small></button>`;
+function projectGroupKey(project) {
+  return JSON.stringify([
+    String(project.shipNo || '').trim(),
+    String(project.displayName || '').trim(),
+    String(project.client || '').trim()
+  ]);
+}
+
+function groupProjects(projects = filtered()) {
+  const map = new Map();
+  projects.forEach(project => {
+    const key = projectGroupKey(project);
+    if (!map.has(key)) map.set(key, { key, projects: [] });
+    map.get(key).projects.push(project);
+  });
+  return [...map.values()].map(group => {
+    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.productName).localeCompare(String(b.productName), 'ja'));
+    group.representative = group.projects[0];
+    group.employeeIds = [...new Set(group.projects.flatMap(projectEmployeeIds))];
+    group.dueDates = [...new Set(group.projects.map(project => project.dueDate).filter(Boolean))].sort();
+    return group;
+  });
+}
+
+function projectGroup(projectOrId) {
+  const project = typeof projectOrId === 'string' ? S.projects.find(item => item.id === projectOrId) : projectOrId;
+  if (!project) return null;
+  const key = projectGroupKey(project);
+  return groupProjects(S.projects).find(group => group.key === key) || null;
+}
+
+function groupLifecycleStatus(group) {
+  const statuses = group.projects.map(project => projectLifecycle(project).status);
+  if (statuses.length && statuses.every(status => status === 'delivered')) return 'delivered';
+  if (statuses.length && statuses.every(status => status === 'production_complete' || status === 'delivered')) return 'production_complete';
+  return 'in_progress';
+}
+
+function groupLifecycleBadgeHtml(group, compact = false) {
+  const status = groupLifecycleStatus(group);
+  return `<span class="project-status status-${esc(status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(status))}</span>`;
+}
+
+function groupDueLabel(group) {
+  if (!group.dueDates.length) return '納期未設定';
+  if (group.dueDates.length === 1) return jp(group.dueDates[0]);
+  return `${jp(group.dueDates[0])}〜${jp(group.dueDates[group.dueDates.length - 1])}`;
+}
+
+function groupEmployeeNames(group) {
+  return group.employeeIds.map(employeeName).filter(Boolean).join('・') || '未設定';
+}
+
+function groupCard(group, employeeId) {
+  const project = group.representative;
+  const status = groupLifecycleStatus(group);
+  return `<button class="job group-job lifecycle-${esc(status)}" style="${employeeColorStyle(employeeId)}" data-group-detail="${esc(project.id)}"><span class="job-topline"><b>${esc(project.shipNo || '—')}</b>${groupLifecycleBadgeHtml(group, true)}</span><span>${esc(project.displayName || '—')}</span><small>${group.projects.length}明細${group.dueDates.length > 1 ? ` ／ ${esc(groupDueLabel(group))}` : ''}</small></button>`;
 }
 
 function renderSchedule() {
@@ -649,11 +704,12 @@ function renderSchedule() {
   const employees = ordered('employees').filter(item => item.active !== false);
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
+  const groups = groupProjects(filtered());
   let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
     html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
-      const cards = filtered().filter(project => project.dueDate === date && projectEmployeeIds(project).includes(item.id)).map(project => projectCard(project, item.id)).join('');
+      const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
     }).join('') + '</tr>';
   }
@@ -676,18 +732,23 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
 
 function renderDeadlines() {
   const statusOrder = { in_progress: 0, production_complete: 1, delivered: 2 };
-  const list = filtered().slice().sort((a, b) => statusOrder[projectLifecycle(a).status] - statusOrder[projectLifecycle(b).status] || String(a.dueDate).localeCompare(String(b.dueDate)));
-  const count = S.selectedProjectIds.size;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件をごみ箱へ</button></div>`;
-  const items = list.length ? list.map(project => `
-    <article class="deadline ${project.completed ? 'done' : ''}">
-      <input type="checkbox" class="project-select" data-select-project="${esc(project.id)}" ${S.selectedProjectIds.has(project.id) ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <button type="button" data-toggle="${esc(project.id)}" class="check">${project.completed ? '✓' : ''}</button>
-      <div><div class="deadline-heading"><time>${esc(jp(project.dueDate))}</time>${lifecycleBadgeHtml(project, true)}</div><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
-      <button type="button" data-edit="${esc(project.id)}">編集</button>
-      <button type="button" data-delete="${esc(project.id)}">ごみ箱へ</button>
-    </article>
-  `).join('') : '<div class="notice">案件はありません。</div>';
+  const groups = groupProjects(filtered()).sort((a, b) => statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] || String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || '')));
+  const selectedGroups = groups.filter(group => group.projects.every(project => S.selectedProjectIds.has(project.id)));
+  const count = selectedGroups.length;
+  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}案件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}案件をごみ箱へ</button></div>`;
+  const items = groups.length ? groups.map(group => {
+    const project = group.representative;
+    const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
+    const products = group.projects.slice(0, 3).map(item => item.productName || '製品名未設定').join('・');
+    const more = group.projects.length > 3 ? ` ほか${group.projects.length - 3}件` : '';
+    return `<article class="deadline grouped-deadline lifecycle-${esc(groupLifecycleStatus(group))}">
+      <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
+      <button type="button" data-group-detail="${esc(project.id)}" class="check group-count-check" aria-label="案件詳細を開く">${group.projects.length}</button>
+      <div><div class="deadline-heading"><time>${esc(groupDueLabel(group))}</time>${groupLifecycleBadgeHtml(group, true)}</div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h3><p><strong>${group.projects.length}明細</strong> ／ ${esc(products)}${esc(more)} ／ ${esc(groupEmployeeNames(group))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
+      <button type="button" data-group-detail="${esc(project.id)}">詳細</button>
+      <button type="button" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
+    </article>`;
+  }).join('') : '<div class="notice">案件はありません。</div>';
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
 }
 
@@ -763,10 +824,44 @@ async function load({ silent = false } = {}) {
   }
 }
 
+function openGroupDetail(id) {
+  const group = projectGroup(id);
+  if (!group) return toast('案件が見つかりません。');
+  const project = group.representative;
+  const lineItems = group.projects.map((item, index) => `
+    <article class="group-detail-line lifecycle-${esc(projectLifecycle(item).status)}">
+      <div class="group-detail-line-number">${index + 1}</div>
+      <div class="group-detail-line-main">
+        <div class="group-detail-line-heading"><h3>${esc(item.productName || '製品名未設定')}</h3>${lifecycleBadgeHtml(item, true)}</div>
+        <dl>
+          <div><dt>数量</dt><dd>${item.quantity ? esc(item.quantity) : '—'}</dd></div>
+          <div><dt>納期</dt><dd>${esc(jp(item.dueDate))}</dd></div>
+          <div><dt>担当者</dt><dd>${esc(employeeNames(item))}</dd></div>
+          <div><dt>仕様</dt><dd>${esc(item.spec || '—')}</dd></div>
+        </dl>
+      </div>
+      <div class="group-detail-line-actions">
+        <button type="button" class="secondary" data-detail="${esc(item.id)}">明細詳細</button>
+        <button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
+        <button type="button" class="danger ghost-danger" data-request-delete="${esc(item.id)}">ごみ箱へ</button>
+      </div>
+    </article>`).join('');
+  $('detailBody').innerHTML = `<header><div><p class="dialog-eyebrow">案件単位表示</p><h2>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h2></div><button type="button" data-close>×</button></header>
+    <section class="group-detail-summary">
+      <dl><div><dt>得意先</dt><dd>${esc(project.client || '—')}</dd></div><div><dt>明細数</dt><dd>${group.projects.length}件</dd></div><div><dt>納期</dt><dd>${esc(groupDueLabel(group))}</dd></div><div><dt>担当者</dt><dd>${esc(groupEmployeeNames(group))}</dd></div></dl>
+      ${groupLifecycleBadgeHtml(group)}
+    </section>
+    <section class="group-detail-lines"><div class="group-detail-section-heading"><h3>製作明細</h3><span>${group.projects.length}件</span></div>${lineItems}</section>
+    <footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button></footer>`;
+  $('detailDialog').showModal();
+}
+
 function openDetail(id, effect = '') {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  const group = projectGroup(project);
+  const backButton = group && group.projects.length > 1 ? `<button type="button" class="detail-back-button" data-group-detail="${esc(project.id)}">← 案件明細一覧へ</button>` : '';
+  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -1185,6 +1280,13 @@ function bindDelegatedEvents() {
       return;
     }
 
+    const groupCheckbox = event.target.closest('[data-select-group]');
+    if (groupCheckbox) {
+      const group = projectGroup(groupCheckbox.dataset.selectGroup);
+      if (group) group.projects.forEach(project => groupCheckbox.checked ? S.selectedProjectIds.add(project.id) : S.selectedProjectIds.delete(project.id));
+      renderDeadlines();
+      return;
+    }
     const checkbox = event.target.closest('[data-select-project]');
     if (!checkbox) return;
     checkbox.checked ? S.selectedProjectIds.add(checkbox.dataset.selectProject) : S.selectedProjectIds.delete(checkbox.dataset.selectProject);
@@ -1213,6 +1315,15 @@ function bindDelegatedEvents() {
       else if (button.id === 'importExcel') openImport();
       else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
       else if (button.dataset.edit) openProject(button.dataset.edit);
+      else if (button.dataset.groupDetail) openGroupDetail(button.dataset.groupDetail);
+      else if (button.dataset.groupDelete) {
+        const group = projectGroup(button.dataset.groupDelete);
+        if (group) {
+          S.selectedProjectIds.clear();
+          group.projects.forEach(project => S.selectedProjectIds.add(project.id));
+          await bulkDeleteSelectedProjects();
+        }
+      }
       else if (button.dataset.detail) openDetail(button.dataset.detail);
       else if (button.dataset.detailEdit) { $('detailDialog').close(); openProject(button.dataset.detailEdit); }
       else if (button.dataset.requestDelete) requestDelete(button.dataset.requestDelete);
