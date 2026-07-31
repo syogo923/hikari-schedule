@@ -160,7 +160,7 @@ function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
 
 
 function normalizeShipNo(value) {
-  let text = String(value || '').trim();
+  let text = safeTrim(value || '');
   if (!text) return '';
   if (/^s\.?\s*/i.test(text)) return `S.${text.replace(/^s\.?\s*/i, '')}`;
   if (/^\d/.test(text)) return `S.${text}`;
