@@ -104,6 +104,7 @@ function portalConfirm({
 // Danger Confirmation Helpers
 // ==========================
 
+// ===== Danger Confirm Helpers =====
 function confirmDangerAction(options) {
   return portalConfirm({
     tone: 'danger',
