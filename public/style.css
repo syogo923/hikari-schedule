@@ -329,55 +329,120 @@ tbody th{
 
 .master-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
-  gap:16px;
+  grid-template-columns:repeat(3,minmax(300px,1fr));
+  gap:18px;
+  align-items:start;
 }
 
 .master-card{
+  min-width:0;
   background:#fff;
-  padding:16px;
+  padding:18px;
   border:1px solid #dfe4ec;
   border-radius:12px;
+  box-shadow:0 4px 14px rgba(31,45,61,.05);
+}
+
+.master-card h3{
+  margin:0 0 14px;
+  font-size:17px;
+  line-height:1.4;
+  white-space:nowrap;
 }
 
 .master-card form{
-  display:flex;
-  gap:8px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  margin-bottom:8px;
 }
 
 .master-card input{
   min-width:0;
-  flex:1;
+  width:100%;
   padding:9px;
   border:1px solid #cbd3df;
   border-radius:7px;
 }
 
+.master-card form button{
+  min-width:68px;
+  white-space:nowrap;
+}
+
+/* 名称と操作ボタンを上下に分け、名称の不自然な折り返しを防ぐ */
 .master-item{
-  display:flex;
-  justify-content:space-between;
-  padding:9px 0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:8px;
+  min-width:0;
+  padding:12px 0;
   border-bottom:1px solid #eee;
+}
+
+.master-item>span{
+  display:block;
+  min-width:0;
+  font-weight:700;
+  line-height:1.45;
+  word-break:keep-all;
+  overflow-wrap:normal;
 }
 
 .master-actions{
   display:flex;
-  gap:4px;
-  flex-wrap:wrap;
+  align-items:center;
   justify-content:flex-end;
+  gap:5px;
+  flex-wrap:nowrap;
+  min-width:0;
 }
 
 .master-actions button{
+  flex:0 0 auto;
+  min-height:32px;
   font-size:12px;
-  padding:5px 7px;
+  font-weight:700;
+  line-height:1;
+  white-space:nowrap;
+  padding:6px 9px;
   border:1px solid #cbd3df;
   background:#fff;
   border-radius:6px;
 }
 
-.master-item.inactive span{
+.master-actions button[data-move]{
+  width:34px;
+  min-width:34px;
+  padding:0;
+  font-size:15px;
+}
+
+.master-actions button[data-mdelete]{
+  color:#b42318;
+  border-color:#f0c9c5;
+  background:#fffafa;
+}
+
+.master-actions button:disabled{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+.master-item.inactive>span{
   opacity:.45;
   text-decoration:line-through;
+}
+
+@media(max-width:1200px){
+  .master-grid{grid-template-columns:repeat(2,minmax(300px,1fr))}
+}
+
+@media(max-width:760px){
+  .master-grid{grid-template-columns:1fr}
+  .master-card form{grid-template-columns:1fr}
+  .master-card form button{width:100%}
+  .master-actions{justify-content:flex-start;flex-wrap:wrap}
 }
 
 /* メッセージ */
