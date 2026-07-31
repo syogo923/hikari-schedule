@@ -2286,3 +2286,39 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
   .group-detail-line-actions{grid-column:1;display:grid;grid-template-columns:1fr 1fr;}
   .group-detail-line-actions .ghost-danger{grid-column:1/-1;}
 }
+
+/* Ver2.9.0 Phase2: 高速一括処理・案件詳細UI仕上げ */
+.group-detail-lines{
+  max-height:min(62vh,760px);
+  overflow:auto;
+  padding-right:6px;
+  scrollbar-gutter:stable;
+}
+.group-detail-line{
+  transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease;
+}
+.group-detail-line:hover{
+  border-color:#c5d5ea;
+  box-shadow:0 8px 22px rgba(13,27,61,.08);
+  transform:translateY(-1px);
+}
+.group-detail-line dl>div{
+  padding:9px 11px;
+  border-radius:10px;
+  background:#f8fafc;
+}
+.group-detail-line-actions{
+  position:sticky;
+  bottom:0;
+  padding:10px 0 2px;
+  background:linear-gradient(to bottom,rgba(255,255,255,0),#fff 28%);
+}
+#confirmBulkDelete:disabled{
+  opacity:.75;
+  cursor:wait;
+}
+@media (max-width:600px){
+  .group-detail-lines{max-height:65vh;padding-right:2px;}
+  .group-detail-line:hover{transform:none;}
+  .group-detail-line-actions{position:static;background:none;padding-top:8px;}
+}
