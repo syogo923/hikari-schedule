@@ -2234,3 +2234,55 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
     grid-column:1/-1;
   }
 }
+
+
+/* Ver2.9.0 Phase1a: 案件詳細の余白改善 */
+#detailDialog{
+  width:min(1080px,calc(100vw - 40px));
+  max-width:1080px;
+}
+.group-detail-summary{
+  gap:24px;
+  padding:20px 22px;
+}
+.group-detail-line{
+  grid-template-columns:40px minmax(0,1fr);
+  gap:14px 16px;
+  padding:18px 20px;
+}
+.group-detail-line-main{
+  min-width:0;
+}
+.group-detail-line-heading{
+  align-items:flex-start;
+  margin-bottom:14px;
+}
+.group-detail-line-heading h3{
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.group-detail-line dl{
+  grid-template-columns:repeat(4,minmax(120px,1fr));
+  gap:12px 22px;
+}
+.group-detail-line-actions{
+  grid-column:2;
+  flex-direction:row;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  padding-top:4px;
+}
+.group-detail-line-actions button{
+  min-width:104px;
+}
+@media (max-width:900px){
+  #detailDialog{width:min(760px,calc(100vw - 24px));}
+  .group-detail-line dl{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:600px){
+  #detailDialog{width:calc(100vw - 12px);}
+  .group-detail-line{padding:15px;}
+  .group-detail-line dl{grid-template-columns:1fr;}
+  .group-detail-line-actions{grid-column:1;display:grid;grid-template-columns:1fr 1fr;}
+  .group-detail-line-actions .ghost-danger{grid-column:1/-1;}
+}
