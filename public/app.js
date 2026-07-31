@@ -9,6 +9,7 @@ const API = {
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
 const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
 const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
+const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -26,7 +27,8 @@ const S = {
   pendingRemoteUpdate: false,
   pollTimer: null,
   materials: [],
-  assigneeProgress: {}
+  assigneeProgress: {},
+  trash: []
 };
 
 const $ = id => document.getElementById(id);
@@ -99,6 +101,124 @@ function loadAssigneeProgress() {
 
 function saveAssigneeProgress() {
   localStorage.setItem(STORAGE_ASSIGNEE_PROGRESS, JSON.stringify(S.assigneeProgress));
+}
+
+
+function loadTrash() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_TRASH) || '[]');
+    S.trash = Array.isArray(saved) ? saved.filter(item => item && item.trashId && item.project) : [];
+  } catch {
+    S.trash = [];
+  }
+}
+
+function saveTrash() {
+  localStorage.setItem(STORAGE_TRASH, JSON.stringify(S.trash));
+  updateTrashCount();
+}
+
+function updateTrashCount() {
+  const count = S.trash.length;
+  const badge = $('trashCount');
+  if (badge) {
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+  }
+}
+
+function trashProjectPayload(project) {
+  return {
+    shipNo: project.shipNo || '',
+    displayName: project.displayName || '',
+    productName: project.productName || '',
+    client: project.client || '',
+    employeeIds: projectEmployeeIds(project),
+    employeeId: projectEmployeeIds(project)[0] || '',
+    dueDate: project.dueDate || '',
+    notes: project.notes || '',
+    quantity: project.quantity || 0,
+    spec: project.spec || '',
+    completed: Boolean(project.completed)
+  };
+}
+
+function addProjectToTrash(project) {
+  const entry = {
+    trashId: `trash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    deletedAt: new Date().toISOString(),
+    deletedBy: employeeName(S.actorEmployeeId),
+    originalProjectId: project.id,
+    project: trashProjectPayload(project),
+    assigneeProgress: projectAssigneeProgress(project)
+  };
+  S.trash.unshift(entry);
+  saveTrash();
+  return entry;
+}
+
+function removeTrashEntry(trashId) {
+  S.trash = S.trash.filter(item => item.trashId !== trashId);
+  saveTrash();
+}
+
+function findRestoredProject(entry, beforeIds) {
+  const direct = S.projects.find(project => !beforeIds.has(project.id) &&
+    project.shipNo === entry.project.shipNo &&
+    project.displayName === entry.project.displayName &&
+    project.productName === entry.project.productName &&
+    project.dueDate === entry.project.dueDate);
+  return direct || S.projects.find(project => !beforeIds.has(project.id));
+}
+
+async function moveProjectToTrash(project) {
+  const entry = addProjectToTrash(project);
+  try {
+    await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() });
+    delete S.assigneeProgress[project.id];
+    saveAssigneeProgress();
+    return true;
+  } catch (error) {
+    removeTrashEntry(entry.trashId);
+    throw error;
+  }
+}
+
+async function restoreTrashEntry(trashId) {
+  const entry = S.trash.find(item => item.trashId === trashId);
+  if (!entry) return toast('ごみ箱の案件が見つかりません。');
+  const beforeIds = new Set(S.projects.map(project => project.id));
+  await api(API.projects, { method: 'POST', body: { ...entry.project, ...actorPayload() } });
+  await load();
+  const restored = findRestoredProject(entry, beforeIds);
+  if (restored && entry.assigneeProgress) {
+    S.assigneeProgress[restored.id] = Object.fromEntries(
+      projectEmployeeIds(restored).map(id => [id, entry.assigneeProgress[id] === true])
+    );
+    saveAssigneeProgress();
+  }
+  removeTrashEntry(trashId);
+  renderTrash();
+  toast('案件を復元しました');
+}
+
+function permanentlyDeleteTrashEntry(trashId) {
+  const entry = S.trash.find(item => item.trashId === trashId);
+  if (!entry) return;
+  const label = `${entry.project.shipNo || ''} ${entry.project.displayName || ''}`.trim() || 'この案件';
+  if (!confirm(`${label}を完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+  removeTrashEntry(trashId);
+  renderTrash();
+  toast('ごみ箱から完全に削除しました');
+}
+
+function emptyTrash() {
+  if (!S.trash.length) return;
+  if (!confirm(`ごみ箱の${S.trash.length}件をすべて完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+  S.trash = [];
+  saveTrash();
+  renderTrash();
+  toast('ごみ箱を空にしました');
 }
 
 function projectAssigneeProgress(project) {
@@ -344,17 +464,51 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
 function renderDeadlines() {
   const list = filtered().slice().sort((a, b) => Number(a.completed) - Number(b.completed) || String(a.dueDate).localeCompare(String(b.dueDate)));
   const count = S.selectedProjectIds.size;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件を削除</button></div>`;
+  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件をごみ箱へ</button></div>`;
   const items = list.length ? list.map(project => `
     <article class="deadline ${project.completed ? 'done' : ''}">
       <input type="checkbox" class="project-select" data-select-project="${esc(project.id)}" ${S.selectedProjectIds.has(project.id) ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
       <button type="button" data-toggle="${esc(project.id)}" class="check">${project.completed ? '✓' : ''}</button>
       <div><time>${esc(jp(project.dueDate))}</time><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
       <button type="button" data-edit="${esc(project.id)}">編集</button>
-      <button type="button" data-delete="${esc(project.id)}">削除</button>
+      <button type="button" data-delete="${esc(project.id)}">ごみ箱へ</button>
     </article>
   `).join('') : '<div class="notice">案件はありません。</div>';
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
+}
+
+
+function renderTrash() {
+  const host = $('trashList');
+  if (!host) return;
+  updateTrashCount();
+  if (!S.trash.length) {
+    host.innerHTML = '<div class="notice trash-empty"><strong>ごみ箱は空です。</strong><span>削除した案件はここから復元できます。</span></div>';
+    const emptyButton = $('emptyTrash');
+    if (emptyButton) emptyButton.disabled = true;
+    return;
+  }
+  const emptyButton = $('emptyTrash');
+  if (emptyButton) emptyButton.disabled = false;
+  host.innerHTML = S.trash.map(entry => {
+    const project = entry.project;
+    const names = projectEmployeeIds(project).map(employeeName).join('・') || '未設定';
+    return `<article class="trash-item">
+      <div class="trash-item-main">
+        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong><span>${esc(project.productName || '—')}</span></div>
+        <dl>
+          <div><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd></div>
+          <div><dt>担当者</dt><dd>${esc(names)}</dd></div>
+          <div><dt>削除日時</dt><dd>${esc(jpDateTime(entry.deletedAt))}</dd></div>
+          <div><dt>削除した人</dt><dd>${esc(entry.deletedBy || '未設定')}</dd></div>
+        </dl>
+      </div>
+      <div class="trash-item-actions">
+        <button type="button" class="primary" data-trash-restore="${esc(entry.trashId)}">復元</button>
+        <button type="button" class="danger" data-trash-delete="${esc(entry.trashId)}">完全削除</button>
+      </div>
+    </article>`;
+  }).join('');
 }
 
 const masterLabels = { clients: '得意先', displayNames: '部門', products: '製作加工', employees: '職員' };
@@ -373,6 +527,7 @@ function render() {
   renderSchedule();
   renderDeadlines();
   renderMasters();
+  renderTrash();
   fillSelects();
 }
 
@@ -396,7 +551,7 @@ async function load({ silent = false } = {}) {
 function openDetail(id) {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">削除</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -428,13 +583,15 @@ function requestDelete(id) {
 
 async function confirmDelete() {
   if (!S.pendingDeleteId) return;
+  const project = S.projects.find(item => item.id === S.pendingDeleteId);
+  if (!project) return toast('案件が見つかりません。');
   try {
-    await api(`${API.projects}?id=${encodeURIComponent(S.pendingDeleteId)}`, { method: 'DELETE', body: actorPayload() });
+    await moveProjectToTrash(project);
     S.selectedProjectIds.delete(S.pendingDeleteId);
     S.pendingDeleteId = '';
     $('deleteDialog').close();
     await load();
-    toast('案件を削除しました');
+    toast('案件をごみ箱へ移動しました');
   } catch (error) { toast(error.message); }
 }
 
@@ -635,22 +792,22 @@ async function bulkDeleteSelectedProjects() {
 async function confirmBulkDelete() {
   const ids = [...S.selectedProjectIds];
   if (!ids.length) return;
-  try {
-    await api(API.projects, { method: 'DELETE', body: { ids, ...actorPayload() } });
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    await load();
-    toast(`${ids.length}件の案件を削除しました。`);
-  } catch (error) {
-    let deleted = 0;
-    for (const id of ids) {
-      try { await api(`${API.projects}?id=${encodeURIComponent(id)}`, { method: 'DELETE', body: actorPayload() }); deleted++; } catch {}
+  let moved = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const project = S.projects.find(item => item.id === id);
+    if (!project) continue;
+    try {
+      await moveProjectToTrash(project);
+      moved++;
+    } catch {
+      failed++;
     }
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    await load();
-    toast(`${deleted}件の案件を削除しました。`);
   }
+  S.selectedProjectIds.clear();
+  $('bulkDeleteDialog').close();
+  await load();
+  toast(failed ? `${moved}件をごみ箱へ移動しました（${failed}件失敗）` : `${moved}件をごみ箱へ移動しました`);
 }
 
 function switchView(view) {
@@ -840,6 +997,9 @@ function bindDelegatedEvents() {
       else if (button.id === 'clearProjectSelection') { S.selectedProjectIds.clear(); renderDeadlines(); }
       else if (button.id === 'bulkDeleteProjects') await bulkDeleteSelectedProjects();
       else if (button.id === 'confirmBulkDelete') await confirmBulkDelete();
+      else if (button.dataset.trashRestore) await restoreTrashEntry(button.dataset.trashRestore);
+      else if (button.dataset.trashDelete) permanentlyDeleteTrashEntry(button.dataset.trashDelete);
+      else if (button.id === 'emptyTrash') emptyTrash();
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
@@ -947,6 +1107,7 @@ async function init() {
   ensureActorUi();
   loadMaterials();
   loadAssigneeProgress();
+  loadTrash();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();
