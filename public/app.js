@@ -394,12 +394,12 @@ async function permanentlyDeleteTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
   if (!entry) return;
   const label = `${entry.project.shipNo || ''} ${entry.project.displayName || ''}`.trim() || 'この案件';
-  const approved = await portalConfirm({
+  const approved = await confirmDangerAction({
     title: '案件を完全に削除しますか？',
     message: 'ごみ箱から完全に削除すると、元に戻せません。',
     detail: label,
     note: '必要な案件でないことを確認してから実行してください。',
-    confirmText: '完全に削除', tone: 'danger', icon: '！'
+    confirmText: '完全に削除'
   });
   if (!approved) return;
   removeTrashEntry(trashId);
