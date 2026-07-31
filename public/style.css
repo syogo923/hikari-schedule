@@ -1135,3 +1135,160 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
   .master-card-collapsible summary{align-items:flex-start}
   .master-card-collapsible summary small{display:none}
 }
+
+/* Ver2.7.3: マスタ管理 UIブラッシュアップ */
+.master-grid{
+  gap:16px;
+}
+
+.master-card{
+  padding:18px 20px;
+  border-color:#d9e1ec;
+  box-shadow:0 3px 12px rgba(13,27,61,.045);
+}
+
+.master-card h3{
+  margin-bottom:13px;
+  color:#0d1b3d;
+  font-size:17px;
+}
+
+.master-card form{
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.master-card input{
+  min-height:44px;
+  padding:9px 11px;
+  border-color:#cbd6e5;
+  border-radius:9px;
+  font-size:15px;
+}
+
+.master-card input:focus{
+  outline:3px solid rgba(23,105,224,.12);
+  border-color:#6f99d6;
+}
+
+.master-card form button{
+  min-width:76px;
+  min-height:44px;
+  border-radius:9px;
+}
+
+.master-item{
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:12px;
+  min-height:56px;
+  padding:9px 0;
+  border-bottom-color:#e8edf4;
+}
+
+.master-item:last-child{
+  border-bottom:0;
+}
+
+.master-item>span{
+  color:#10203a;
+  font-size:15px;
+  line-height:1.35;
+}
+
+.master-actions{
+  gap:4px;
+}
+
+.master-actions button{
+  min-height:30px;
+  padding:5px 8px;
+  border-color:#cbd6e5;
+  border-radius:7px;
+  color:#17233a;
+  font-size:11px;
+  transition:background-color .15s,border-color .15s,box-shadow .15s,transform .1s;
+}
+
+.master-actions button:hover:not(:disabled){
+  background:#f2f6fb;
+  border-color:#9db1cc;
+  box-shadow:0 2px 6px rgba(13,27,61,.08);
+}
+
+.master-actions button:active:not(:disabled){
+  transform:translateY(1px);
+  box-shadow:none;
+}
+
+.master-actions button[data-move]{
+  width:31px;
+  min-width:31px;
+  min-height:30px;
+  font-size:14px;
+}
+
+.master-actions button[data-mdelete]{
+  color:#b42318;
+  border-color:#efc6c1;
+  background:#fffafa;
+}
+
+.master-actions button[data-mdelete]:hover:not(:disabled){
+  color:#981b12;
+  border-color:#e8a69e;
+  background:#fff1f0;
+}
+
+.master-item.inactive{
+  opacity:.7;
+}
+
+.master-item.inactive>span{
+  opacity:.65;
+}
+
+.master-card-collapsible summary{
+  padding:15px 20px;
+}
+
+.master-card-body{
+  padding:16px 20px 18px;
+}
+
+@media(max-width:1380px){
+  .master-item{
+    grid-template-columns:1fr;
+    gap:7px;
+  }
+  .master-actions{
+    justify-content:flex-end;
+  }
+}
+
+@media(max-width:760px){
+  .master-card{
+    padding:16px;
+  }
+  .master-item{
+    padding:11px 0;
+  }
+  .master-actions{
+    justify-content:flex-start;
+    max-width:none;
+    flex-wrap:wrap;
+  }
+  .master-actions button{
+    min-height:34px;
+    font-size:12px;
+  }
+  .master-actions button[data-move]{
+    min-height:34px;
+  }
+  .master-card-collapsible summary{
+    padding:15px 16px;
+  }
+  .master-card-body{
+    padding:16px;
+  }
+}
