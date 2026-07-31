@@ -120,6 +120,14 @@
 
     <button
       type="button"
+      class="nav"
+      data-view="calendar"
+    >
+      月間カレンダー
+    </button>
+
+    <button
+      type="button"
       class="nav trash-nav"
       data-view="trash"
     >
@@ -187,6 +195,14 @@
         <div class="toolbar-actions">
 
           <button
+            id="manageInternalSchedule"
+            type="button"
+            class="secondary"
+          >
+            社内予定設定
+          </button>
+
+          <button
             id="importExcel"
             type="button"
             class="secondary"
@@ -218,6 +234,26 @@
         ></table>
       </div>
 
+    </section>
+
+    <!-- 月間カレンダー -->
+    <section id="calendarView" class="view">
+      <div class="section-head calendar-section-head">
+        <div>
+          <h2>月間カレンダー</h2>
+          <p class="muted">案件納期を月単位で俯瞰できます。案件名を押すと詳細を開きます。</p>
+        </div>
+        <div class="calendar-controls">
+          <button id="calendarPrev" type="button" aria-label="前の月">‹</button>
+          <strong id="calendarMonth"></strong>
+          <button id="calendarNext" type="button" aria-label="次の月">›</button>
+          <input id="calendarSearch" type="search" placeholder="S2830・S930などを検索">
+          <select id="calendarEmployeeFilter" aria-label="担当者で絞り込み"><option value="">全担当者</option></select>
+        </div>
+      </div>
+      <div class="monthly-calendar-wrap">
+        <div id="monthlyCalendar" class="monthly-calendar" aria-label="案件納期月間カレンダー"></div>
+      </div>
     </section>
 
     <!-- 納期一覧 -->
@@ -942,6 +978,36 @@
   </dialog>
 
 
+  <!-- 社内予定設定 -->
+  <dialog id="internalScheduleDialog" class="internal-schedule-dialog">
+    <div class="internal-schedule-panel">
+      <header><div><p class="dialog-eyebrow">ホーム右端に表示</p><h2>社内予定設定</h2></div><button type="button" data-close>×</button></header>
+      <form id="internalScheduleForm">
+        <input id="internalScheduleId" type="hidden">
+        <label>予定名<input id="internalScheduleTitle" required maxlength="80" placeholder="朝礼・掃除・会議など"></label>
+        <div class="internal-schedule-grid">
+          <label>種類<select id="internalScheduleType"><option value="weekly">毎週</option><option value="once">一回のみ</option></select></label>
+          <label id="internalWeekdayLabel">曜日<select id="internalScheduleWeekday"><option value="1">月曜日</option><option value="2">火曜日</option><option value="3">水曜日</option><option value="4">木曜日</option><option value="5">金曜日</option><option value="6">土曜日</option><option value="0">日曜日</option></select></label>
+          <label id="internalDateLabel" hidden>日付<input id="internalScheduleDate" type="date"></label>
+          <label>時刻<input id="internalScheduleTime" type="time"></label>
+        </div>
+        <label>補足<input id="internalScheduleNote" maxlength="120" placeholder="任意"></label>
+        <footer><button type="button" id="resetInternalSchedule" class="secondary">新規入力</button><button type="submit" class="primary">保存</button></footer>
+      </form>
+      <section><h3>登録済みの社内予定</h3><div id="internalScheduleList"></div></section>
+    </div>
+  </dialog>
+
+  <!-- 日付付箋 -->
+  <dialog id="stickyNoteDialog" class="sticky-note-dialog">
+    <form id="stickyNoteForm">
+      <header><div><p class="dialog-eyebrow">日付ごとの付箋</p><h2 id="stickyNoteTitle">付箋</h2></div><button type="button" data-close>×</button></header>
+      <input id="stickyNoteDate" type="hidden">
+      <label>内容<textarea id="stickyNoteText" rows="5" maxlength="300" placeholder="入力した日だけ、ホームの付箋欄に色が付きます。"></textarea></label>
+      <footer><button type="button" id="clearStickyNote" class="danger">内容を消す</button><button type="submit" class="primary">保存</button></footer>
+    </form>
+  </dialog>
+
   <!-- 共通確認ダイアログ -->
   <dialog
     id="portalConfirmDialog"
@@ -973,7 +1039,7 @@
   ></div>
 
   <script
-    src="/app.js?v=2.9.3-alpha-restore-fix-1"
+    src="/app.js?v=3.1"
     defer
   ></script>
 
