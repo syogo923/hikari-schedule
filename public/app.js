@@ -1,3 +1,9 @@
+/* 光ポータル Ver3.0β2 - Safe Refactoring
+   - コメント整理
+   - セクション整理
+   - 動作変更なし
+*/
+
 // ==========================================
 // 光ポータル Ver3.0β1 リファクタリング版
 // 安全なリファクタリングのみ実施
@@ -104,11 +110,11 @@ function portalConfirm({
   });
 }
 
-
 // ==========================
 // Danger Confirmation Helpers
 // ==========================
 
+// ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
 function confirmDangerAction(options) {
@@ -263,7 +269,6 @@ function setProjectLifecycle(projectId, status) {
   renderDeadlines();
   return true;
 }
-
 
 function loadTrash() {
   try {
@@ -802,7 +807,6 @@ function renderDeadlines() {
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
 }
 
-
 function renderTrash() {
   const host = $('trashList');
   if (!host) return;
@@ -1001,7 +1005,6 @@ function isImportableItem(item) {
   if (Number.isFinite(quantity) && quantity <= 0) return false;
   return true;
 }
-
 
 function employeeMultiDropdownHtml(containerId, selectedIds = [], autoEtching = false) {
   const selected = new Set(selectedIds);
@@ -1468,7 +1471,6 @@ function bindDelegatedEvents() {
     } catch (error) { toast(error.message); }
   });
 }
-
 
 function loadMaterials() {
   try { S.materials = JSON.parse(localStorage.getItem(STORAGE_MATERIALS) || '[]'); }
