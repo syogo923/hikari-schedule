@@ -8,6 +8,7 @@ const API = {
 
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
 const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
+const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -24,7 +25,8 @@ const S = {
   historyLoaded: false,
   pendingRemoteUpdate: false,
   pollTimer: null,
-  materials: []
+  materials: [],
+  assigneeProgress: {}
 };
 
 const $ = id => document.getElementById(id);
@@ -84,6 +86,62 @@ function projectEmployeeIds(project) {
 function employeeNames(project) {
   const names = projectEmployeeIds(project).map(employeeName);
   return names.length ? names.join('・') : '未設定';
+}
+
+function loadAssigneeProgress() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_ASSIGNEE_PROGRESS) || '{}');
+    S.assigneeProgress = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch {
+    S.assigneeProgress = {};
+  }
+}
+
+function saveAssigneeProgress() {
+  localStorage.setItem(STORAGE_ASSIGNEE_PROGRESS, JSON.stringify(S.assigneeProgress));
+}
+
+function projectAssigneeProgress(project) {
+  const saved = S.assigneeProgress[project.id];
+  const current = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  return Object.fromEntries(projectEmployeeIds(project).map(id => [id, current[id] === true]));
+}
+
+function assigneeProgressSummary(project) {
+  const progress = projectAssigneeProgress(project);
+  const total = Object.keys(progress).length;
+  const completed = Object.values(progress).filter(Boolean).length;
+  return { progress, total, completed };
+}
+
+function setAssigneeComplete(projectId, employeeId, completed) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
+  const progress = projectAssigneeProgress(project);
+  progress[employeeId] = Boolean(completed);
+  S.assigneeProgress[projectId] = progress;
+  saveAssigneeProgress();
+  return true;
+}
+
+function assigneeProgressHtml(project) {
+  const { progress, total, completed } = assigneeProgressSummary(project);
+  if (!total) return '<p class="muted">担当者が設定されていません。</p>';
+  return `<section class="assignee-progress" aria-labelledby="assigneeProgressHeading">
+    <div class="assignee-progress-heading">
+      <h3 id="assigneeProgressHeading">担当者ごとの完了</h3>
+      <strong>${completed} / ${total} 完了</strong>
+    </div>
+    <div class="assignee-progress-list">
+      ${projectEmployeeIds(project).map(id => `<label class="assignee-progress-item ${progress[id] ? 'is-complete' : ''}" style="${employeeColorStyle(id)}">
+        <input type="checkbox" data-assignee-complete data-project-id="${esc(project.id)}" value="${esc(id)}" ${progress[id] ? 'checked' : ''}>
+        <span class="assignee-progress-check" aria-hidden="true"></span>
+        <span class="assignee-progress-name">${esc(employeeName(id))}</span>
+        <small>${progress[id] ? '完了' : '未完了'}</small>
+      </label>`).join('')}
+    </div>
+    <p class="assignee-progress-note">チェック状態は、この端末のブラウザに保存されます。</p>
+  </section>`;
 }
 
 function actorPayload() {
@@ -338,7 +396,7 @@ async function load({ silent = false } = {}) {
 function openDetail(id) {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl><footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">削除</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">削除</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -734,6 +792,17 @@ function bindFixedEvents() {
 
 function bindDelegatedEvents() {
   document.body.addEventListener('change', event => {
+    const progressCheckbox = event.target.closest('[data-assignee-complete]');
+    if (progressCheckbox) {
+      const projectId = progressCheckbox.dataset.projectId;
+      const employeeId = progressCheckbox.value;
+      if (setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
+        openDetail(projectId);
+        toast(progressCheckbox.checked ? `${employeeName(employeeId)}さんを完了にしました` : `${employeeName(employeeId)}さんを未完了に戻しました`);
+      }
+      return;
+    }
+
     const checkbox = event.target.closest('[data-select-project]');
     if (!checkbox) return;
     checkbox.checked ? S.selectedProjectIds.add(checkbox.dataset.selectProject) : S.selectedProjectIds.delete(checkbox.dataset.selectProject);
@@ -877,6 +946,7 @@ function bindCalculatorEvents() {
 async function init() {
   ensureActorUi();
   loadMaterials();
+  loadAssigneeProgress();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();
