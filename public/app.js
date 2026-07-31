@@ -131,7 +131,11 @@ function confirmDangerAction(options) {
 
 /* ===== 共通ユーティリティ ===== */
 
+// ===== 共通ユーティリティ =====
+
 function byId(id){ return document.getElementById(id); }
+function isNil(v){ return v===null || v===undefined; }
+
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
