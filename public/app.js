@@ -409,11 +409,11 @@ async function permanentlyDeleteTrashEntry(trashId) {
 
 async function emptyTrash() {
   if (!S.trash.length) return;
-  const approved = await portalConfirm({
+  const approved = await confirmDangerAction({
     title: 'ごみ箱を空にしますか？',
     message: `ごみ箱にある${S.trash.length}件をすべて完全に削除します。`,
     note: 'この操作は元に戻せません。',
-    confirmText: 'すべて完全に削除', tone: 'danger', icon: '！'
+    confirmText: 'すべて完全に削除'
   });
   if (!approved) return;
   S.trash = [];
@@ -1443,7 +1443,7 @@ function bindDelegatedEvents() {
       else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
       else if (button.dataset.materialDelete) {
         const item = S.materials.find(x => x.id === button.dataset.materialDelete);
-        const approved = await portalConfirm({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する', tone: 'danger', icon: '！' });
+        const approved = await confirmDangerAction({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する' });
         if (approved) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
       }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
@@ -1452,7 +1452,7 @@ function bindDelegatedEvents() {
       else if (button.dataset.move) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.id, action: 'move', direction: button.dataset.move } }); await load(); }
       else if (button.dataset.mdelete) {
         const item = S.masters[button.dataset.type]?.find(x => x.id === button.dataset.mdelete);
-        const approved = await portalConfirm({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する', tone: 'danger', icon: '！' });
+        const approved = await confirmDangerAction({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する' });
         if (approved) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
       }
     } catch (error) { toast(error.message); }
