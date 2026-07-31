@@ -1504,3 +1504,185 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
     justify-content:flex-end;
   }
 }
+
+/* Ver2.8.2: 製作完了・納品完了 */
+.project-status{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  padding:4px 10px;
+  border:1px solid transparent;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  line-height:1;
+  white-space:nowrap;
+}
+.project-status.is-compact{
+  min-height:22px;
+  padding:3px 7px;
+  font-size:10px;
+}
+.project-status.status-in_progress{
+  border-color:#facc15;
+  background:#fef9c3;
+  color:#854d0e;
+}
+.project-status.status-production_complete{
+  border-color:#4ade80;
+  background:#dcfce7;
+  color:#166534;
+}
+.project-status.status-delivered{
+  border-color:#60a5fa;
+  background:#dbeafe;
+  color:#1e40af;
+}
+.job-topline{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  width:100%;
+}
+.job.lifecycle-production_complete{
+  box-shadow:inset 4px 0 0 #22c55e;
+}
+.job.lifecycle-delivered{
+  opacity:.72;
+  box-shadow:inset 4px 0 0 #3b82f6;
+}
+.deadline-heading{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:2px;
+}
+.project-lifecycle{
+  margin-top:18px;
+  padding:18px;
+  border:1px solid #d9e2ef;
+  border-radius:16px;
+  background:linear-gradient(180deg,#fff,#f8fafc);
+}
+.project-lifecycle-heading{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:16px;
+}
+.project-lifecycle-heading h3{
+  margin:0;
+  color:#172554;
+  font-size:17px;
+}
+.project-lifecycle-heading p{
+  margin:4px 0 0;
+  color:#64748b;
+  font-size:12px;
+}
+.project-lifecycle-steps{
+  display:grid;
+  grid-template-columns:auto minmax(24px,1fr) auto minmax(24px,1fr) auto;
+  align-items:center;
+  gap:8px;
+  margin:18px 0 12px;
+}
+.project-lifecycle-steps span{
+  min-width:76px;
+  padding:8px 10px;
+  border:1px solid #cbd5e1;
+  border-radius:999px;
+  background:#fff;
+  color:#64748b;
+  font-size:12px;
+  font-weight:900;
+  text-align:center;
+}
+.project-lifecycle-steps i{
+  height:3px;
+  border-radius:999px;
+  background:#cbd5e1;
+}
+.project-lifecycle-steps span.is-done,
+.project-lifecycle-steps span.is-current{
+  border-color:#22c55e;
+  background:#dcfce7;
+  color:#166534;
+}
+.project-lifecycle-steps.status-production_complete i:first-of-type,
+.project-lifecycle-steps.status-delivered i{
+  background:#22c55e;
+}
+.project-lifecycle-steps.status-delivered span:last-child{
+  border-color:#3b82f6;
+  background:#dbeafe;
+  color:#1e40af;
+}
+.project-lifecycle-meta{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  color:#475569;
+}
+.project-lifecycle-note,
+.project-lifecycle-storage-note{
+  margin:10px 0 0;
+  color:#64748b;
+  font-size:12px;
+}
+.project-lifecycle-actions{
+  display:flex;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:14px;
+}
+.production-complete-button,
+.delivery-complete-button{
+  border-color:transparent;
+  color:#fff;
+  font-weight:900;
+}
+.production-complete-button{
+  background:#15803d;
+}
+.production-complete-button:hover:not(:disabled){
+  background:#166534;
+}
+.delivery-complete-button{
+  background:#2563eb;
+}
+.delivery-complete-button:hover:not(:disabled){
+  background:#1d4ed8;
+}
+.production-complete-button:disabled{
+  cursor:not-allowed;
+  opacity:.45;
+}
+@media(max-width:620px){
+  .project-lifecycle-heading{
+    flex-direction:column;
+  }
+  .project-lifecycle-steps{
+    grid-template-columns:1fr;
+    gap:6px;
+  }
+  .project-lifecycle-steps span{
+    width:100%;
+  }
+  .project-lifecycle-steps i{
+    width:3px;
+    height:16px;
+    justify-self:center;
+  }
+  .project-lifecycle-actions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .project-lifecycle-actions button{
+    width:100%;
+  }
+}
