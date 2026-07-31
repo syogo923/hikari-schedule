@@ -1,3 +1,4 @@
+/* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
 /* 光ポータル Ver3.0β2 - Safe Refactoring
@@ -136,8 +137,6 @@ function confirmDangerAction(options) {
 function byId(id){ return document.getElementById(id); }
 function isNil(v){ return v===null || v===undefined; }
 
-
-
 function safeTrim(v){ return isNil(v) ? '' : safeTrim(v); }
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -156,9 +155,6 @@ function isBlank(v){ return safeTrim(v)===''; }
 function isPresent(v){ return !isBlank(v); }
 function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
 
-
-
-
 function normalizeShipNo(value) {
   let text = safeTrim(value || '');
   if (!text) return '';
@@ -168,7 +164,6 @@ function normalizeShipNo(value) {
 }
 
 function noop(){}
-
 
 function ordered(type) {
   return [...(S.masters[type] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
