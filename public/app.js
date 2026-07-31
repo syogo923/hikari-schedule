@@ -1125,7 +1125,7 @@ async function confirmBulkDelete() {
   const ids = [...S.selectedProjectIds];
   if (!ids.length) return;
 
-  // 削除前の完全なスナップショットを保持する。
+  // 削除前の案件データを保持し、API成功後にそのままごみ箱へ登録する。
   const targetMap = new Map(S.projects.map(project => [project.id, project]));
   const targets = ids.map(id => targetMap.get(id)).filter(Boolean);
   if (!targets.length) return toast('削除対象が見つかりません。');
@@ -1138,87 +1138,50 @@ async function confirmBulkDelete() {
   }
 
   try {
-    // Phase2.1: APIが元々備えている一括削除を1回だけ呼ぶ。
-    // 複数DELETEの並列実行は、サーバー側の同時書き込み競合で削除が巻き戻るため使用しない。
-    await api(API.projects, {
-      method: 'DELETE',
-      body: { ids: targets.map(project => project.id), ...actorPayload() }
+    // Phase2.2 高速化:
+    // projects.mjsが受け付ける ?ids=ID1,ID2... を使い、DELETE通信を1回に集約する。
+    // 削除後の全件再取得（load）は行わず、APIが返すdeletedIdsで画面状態を更新する。
+    const params = new URLSearchParams({
+      ids: targets.map(project => project.id).join(','),
+      actorName: employeeName(S.actorEmployeeId)
     });
 
-    // サーバーの確定状態を1回だけ読み直し、実際に消えた案件だけをごみ箱へ登録する。
-    await load({ silent: true });
-    let remainingIds = new Set(S.projects.map(project => project.id));
-    let failed = targets.filter(project => remainingIds.has(project.id));
+    const result = await api(`${API.projects}?${params.toString()}`, {
+      method: 'DELETE'
+    });
 
-    // 一括APIが一部だけ処理した場合に限り、残りを直列で補完する。
-    // 並列にはしないため、データ競合は起こさない。
-    if (failed.length) {
-      if (confirmButton) confirmButton.textContent = `残り${failed.length}件を確認中…`;
-      for (const project of failed) {
-        try {
-          await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
-            method: 'DELETE',
-            body: actorPayload()
-          });
-        } catch {
-          // 最後の再取得で実際の状態を判定する。
-        }
-      }
-      await load({ silent: true });
-      remainingIds = new Set(S.projects.map(project => project.id));
-      failed = targets.filter(project => remainingIds.has(project.id));
+    const deletedIds = new Set(
+      Array.isArray(result.deletedIds) ? result.deletedIds.map(String) : []
+    );
+
+    if (!deletedIds.size) {
+      throw new Error('削除結果を確認できませんでした。');
     }
 
-    const actuallyMoved = targets.filter(project => !remainingIds.has(project.id));
-    if (actuallyMoved.length) {
-      addProjectsToTrash(actuallyMoved);
-      for (const project of actuallyMoved) {
-        delete S.assigneeProgress[project.id];
-        delete S.projectLifecycle[project.id];
-      }
-      saveAssigneeProgress();
-      saveProjectLifecycle();
-    }
+    const moved = targets.filter(project => deletedIds.has(String(project.id)));
+    const failed = targets.filter(project => !deletedIds.has(String(project.id)));
 
+    // サーバーの削除結果だけをローカル状態へ反映する。
+    S.projects = S.projects.filter(project => !deletedIds.has(String(project.id)));
+    addProjectsToTrash(moved);
+
+    for (const project of moved) {
+      delete S.assigneeProgress[project.id];
+      delete S.projectLifecycle[project.id];
+    }
+    saveAssigneeProgress();
+    saveProjectLifecycle();
+
+    S.revision = String(result.revision ?? result.updatedAt ?? S.revision ?? '');
     S.selectedProjectIds.clear();
     $('bulkDeleteDialog').close();
     render();
 
     toast(failed.length
-      ? `${actuallyMoved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
-      : `${actuallyMoved.length}件を一括でごみ箱へ移動しました`);
+      ? `${moved.length}件をごみ箱へ移動しました（${failed.length}件は対象外でした）`
+      : `${moved.length}件を一括でごみ箱へ移動しました`);
   } catch (error) {
-    // 一括API自体が利用できない環境では、安全な直列処理へ切り替える。
-    let moved = [];
-    for (const project of targets) {
-      try {
-        await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
-          method: 'DELETE',
-          body: actorPayload()
-        });
-      } catch {}
-    }
-    await load({ silent: true });
-    const remainingIds = new Set(S.projects.map(project => project.id));
-    moved = targets.filter(project => !remainingIds.has(project.id));
-    const failed = targets.filter(project => remainingIds.has(project.id));
-
-    if (moved.length) {
-      addProjectsToTrash(moved);
-      for (const project of moved) {
-        delete S.assigneeProgress[project.id];
-        delete S.projectLifecycle[project.id];
-      }
-      saveAssigneeProgress();
-      saveProjectLifecycle();
-    }
-
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    render();
-    toast(failed.length
-      ? `${moved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
-      : `${moved.length}件をごみ箱へ移動しました`);
+    toast(error.message);
   } finally {
     if (confirmButton) {
       confirmButton.disabled = false;
