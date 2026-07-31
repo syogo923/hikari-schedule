@@ -202,20 +202,12 @@ function normalizeInternalSchedule(item = {}) {
 
 function internalSchedulesForDate(date) {
   const target = new Date(`${date}T00:00:00`);
-  const day = target.getDate();
-  const month = target.getMonth() + 1;
-  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => {
-    if (item.type === 'once') return item.date === date;
-    if (item.type === 'monthly') return item.day === day;
-    if (item.type === 'yearly') return item.month === month && item.day === day;
-    return false;
-  }).sort((a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')) || String(a.title).localeCompare(String(b.title), 'ja'));
+  if (Number.isNaN(target.getTime())) return [];
+  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => Number(item.day) === target.getDate());
 }
 
 function internalScheduleTypeLabel(item) {
-  if (item.type === 'monthly') return `毎月${item.day}日`;
-  if (item.type === 'yearly') return `毎年${item.month}月${item.day}日`;
-  return item.date ? jp(item.date) : '日付未設定';
+  return `毎月${Number(item.day) || 1}日`;
 }
 
 function internalScheduleHtml(date) {
@@ -233,27 +225,19 @@ function stickyNoteCellHtml(date) {
 function renderInternalScheduleList() {
   const host = $('internalScheduleList');
   if (!host) return;
-  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => String(a.type).localeCompare(String(b.type)) || Number(a.month)-Number(b.month) || Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
+  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
   host.innerHTML = items.length ? items.map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${esc(internalScheduleTypeLabel(item))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
 }
 
 function resetInternalScheduleForm() {
   $('internalScheduleForm')?.reset();
   $('internalScheduleId').value = '';
-  $('internalScheduleType').value = 'monthly';
   $('internalScheduleDay').value = '1';
-  $('internalScheduleMonth').value = '1';
   updateInternalScheduleTypeUi();
 }
 
 function updateInternalScheduleTypeUi() {
-  const type = $('internalScheduleType')?.value || 'monthly';
-  if ($('internalMonthLabel')) $('internalMonthLabel').hidden = type !== 'yearly';
-  if ($('internalDayLabel')) $('internalDayLabel').hidden = !['monthly', 'yearly'].includes(type);
-  if ($('internalDateLabel')) $('internalDateLabel').hidden = type !== 'once';
-  if ($('internalScheduleDate')) $('internalScheduleDate').required = type === 'once';
-  if ($('internalScheduleDay')) $('internalScheduleDay').required = ['monthly', 'yearly'].includes(type);
-  if ($('internalScheduleMonth')) $('internalScheduleMonth').required = type === 'yearly';
+  // 社内予定は「毎月○日」のみ。追加の切替UIはありません。
 }
 
 function openInternalSchedule(id = '') {
@@ -263,10 +247,7 @@ function openInternalSchedule(id = '') {
   if (item) {
     $('internalScheduleId').value = item.id;
     $('internalScheduleTitle').value = item.title || '';
-    $('internalScheduleType').value = item.type || 'monthly';
     $('internalScheduleDay').value = String(item.day || 1);
-    $('internalScheduleMonth').value = String(item.month || 1);
-    $('internalScheduleDate').value = item.date || '';
     $('internalScheduleTime').value = item.time || '';
     $('internalScheduleNote').value = item.note || '';
     updateInternalScheduleTypeUi();
@@ -896,9 +877,7 @@ function checkedValues(containerId) {
 
 function fillSelects() {
   if ($('displayNameList')) $('displayNameList').innerHTML = fillDatalist('displayNames');
-  if ($('productNameList')) $('productNameList').innerHTML = fillDatalist('products');
   if ($('clientList')) $('clientList').innerHTML = fillDatalist('clients');
-  if ($('employeeId')) $('employeeId').innerHTML = optionHtml('employees');
   if ($('importEmployee')) $('importEmployee').innerHTML = optionHtml('employees', '担当者を選択');
   renderEmployeeCheckboxes('employeeChoices');
   renderEmployeeCheckboxes('importEmployeeChoices');
@@ -911,7 +890,6 @@ function fillSelects() {
     $('historyActorFilter').innerHTML = '<option value="">すべて</option>' + ordered('employees').map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
     $('historyActorFilter').value = current;
   }
-  if ($('legacyEmployeeLabel')) $('legacyEmployeeLabel').hidden = true;
   if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
   if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
   if ($('importEmployeeChoicesField')) $('importEmployeeChoicesField').hidden = true;
@@ -920,7 +898,7 @@ function fillSelects() {
 function filtered() {
   const q = S.q.trim().toLowerCase();
   return S.projects.filter(project => !q || [
-    project.shipNo, project.displayName, project.productName, project.client,
+    project.shipNo, project.displayName, project.client,
     project.spec, project.notes, employeeNames(project)
   ].join(' ').toLowerCase().includes(q));
 }
@@ -941,7 +919,7 @@ function groupProjects(projects = filtered()) {
     map.get(key).projects.push(project);
   });
   return [...map.values()].map(group => {
-    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.productName).localeCompare(String(b.productName), 'ja'));
+    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
     group.representative = group.projects[0];
     group.employeeIds = [...new Set(group.projects.flatMap(projectEmployeeIds))];
     group.dueDates = [...new Set(group.projects.map(project => project.dueDate).filter(Boolean))].sort();
@@ -1026,7 +1004,6 @@ function renderDeadlines() {
   const items = groups.length ? groups.map(group => {
     const project = group.representative;
     const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
-    const products = group.projects.slice(0, 2).map(item => item.productName || '製品名未設定').join('・');
     const more = group.projects.length > 2 ? `ほか${group.projects.length - 2}件` : '';
     const summary = group.projects.reduce((acc, item) => { const x=assigneeProgressSummary(item); acc.completed+=x.completed; acc.total+=x.total; return acc; }, {completed:0,total:0});
     return `<article class="deadline grouped-deadline deadline-one-line lifecycle-${esc(groupLifecycleStatus(group))}">
@@ -1034,7 +1011,7 @@ function renderDeadlines() {
       <time>${esc(groupDueLabel(group))}</time>
       ${groupLifecycleBadgeHtml(group, true)}
       <button type="button" data-group-detail="${esc(project.id)}" class="deadline-main-link"><strong>${esc(project.shipNo || '—')}</strong><span>${esc(project.displayName || '—')}</span></button>
-      <span class="deadline-inline-meta">${group.projects.length}明細${products ? ` ／ ${esc(products)}` : ''}${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}</span>
+      <span class="deadline-inline-meta">${group.projects.length}明細${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}</span>
       <button type="button" class="secondary" data-group-detail="${esc(project.id)}">詳細</button>
       <button type="button" class="danger ghost-danger" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
     </article>`;
@@ -1059,7 +1036,7 @@ function renderTrash() {
     const names = projectEmployeeIds(project).map(employeeName).join('・') || '未設定';
     return `<article class="trash-item">
       <div class="trash-item-main">
-        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong><span>${esc(project.productName || '—')}</span></div>
+        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong></div>
         <dl>
           <div><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd></div>
           <div><dt>担当者</dt><dd>${esc(names)}</dd></div>
@@ -1076,8 +1053,8 @@ function renderTrash() {
   }).join('');
 }
 
-const masterLabels = { clients: '得意先', displayNames: '部門', products: '製作加工', employees: '職員' };
-const masterOrder = ['clients', 'displayNames', 'products', 'employees'];
+const masterLabels = { clients: '得意先', displayNames: '部門', employees: '職員' };
+const masterOrder = ['clients', 'displayNames', 'employees'];
 function masterCardHtml(type) {
   const content = `<form data-master="${type}"><input placeholder="${masterLabels[type]}名"><button class="primary">追加</button></form><div>${ordered(type).map((item, index, array) => `<div class="master-item ${item.active === false ? 'inactive' : ''}"><span>${esc(item.name)}</span><div class="master-actions"><button type="button" data-move="up" data-id="${esc(item.id)}" data-type="${type}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="down" data-id="${esc(item.id)}" data-type="${type}" ${index === array.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-medit="${esc(item.id)}" data-type="${type}">変更</button><button type="button" data-mtoggle="${esc(item.id)}" data-type="${type}">${item.active === false ? '表示' : '非表示'}</button><button type="button" data-mdelete="${esc(item.id)}" data-type="${type}">削除</button></div></div>`).join('') || '<p class="muted">登録なし</p>'}</div>`;
   if (type === 'employees') return `<details class="master-card master-card-collapsible"><summary><span>職員マスタ</span><small>ほぼ固定のため通常は非表示</small></summary><div class="master-card-body">${content}</div></details>`;
@@ -1131,7 +1108,7 @@ function openGroupDetail(id) {
     <article class="group-detail-line lifecycle-${esc(projectLifecycle(item).status)}">
       <div class="group-detail-line-number">${index + 1}</div>
       <div class="group-detail-line-main">
-        <div class="group-detail-line-heading"><h3>${esc(item.productName || '製品名未設定')}</h3>${lifecycleBadgeHtml(item, true)}</div>
+        <div class="group-detail-line-heading"><h3>明細 ${index + 1}</h3>${lifecycleBadgeHtml(item, true)}</div>
         <dl>
           <div><dt>数量</dt><dd>${item.quantity ? esc(item.quantity) : '—'}</dd></div>
           <div><dt>納期</dt><dd>${esc(jp(item.dueDate))}</dd></div>
@@ -1160,7 +1137,7 @@ function openDetail(id, effect = '') {
   if (!project) return toast('案件が見つかりません。');
   const group = projectGroup(project);
   const backButton = group && group.projects.length > 1 ? `<button type="button" class="detail-back-button" data-group-detail="${esc(project.id)}">← 案件明細一覧へ</button>` : '';
-  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-copy-project="${esc(project.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-copy-project="${esc(project.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -1169,9 +1146,8 @@ function openProject(id = '') {
   $('projectId').value = project?.id || '';
   $('shipNo').value = project?.shipNo || 'S.';
   $('displayName').value = project?.displayName || '';
-  $('productName').value = project?.productName || '';
   $('client').value = project?.client || '';
-  $('dueDate').value = project?.dueDate || fd(new Date());
+  $('dueDate').value = project?.dueDate || '';
   $('notes').value = project?.notes || '';
   $('projectHeading').textContent = project ? '案件を編集' : '案件を追加';
   $('projectError').textContent = '';
@@ -1185,7 +1161,7 @@ function requestDelete(id) {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
   S.pendingDeleteId = id;
-  $('deleteTarget').textContent = `${project.shipNo || ''} ${project.displayName || ''} ${project.productName || ''}`.trim();
+  $('deleteTarget').textContent = `${project.shipNo || ''} ${project.displayName || ''}`.trim();
   if ($('detailDialog').open) $('detailDialog').close();
   $('deleteDialog').showModal();
 }
@@ -1298,7 +1274,7 @@ function renderImportRows() {
     const autoEtching = isEtching(item) && Boolean(masahiroId);
     const selectedIds = autoEtching ? [masahiroId] : [];
     if (selectedIds.length) hasAutoAssign = true;
-    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
+    return `<tr data-import-row="${index}" data-import-product="${esc(item.productName || '')}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
   }).join('');
   if ($('etchingAutoAssignNotice')) $('etchingAutoAssignNotice').hidden = !hasAutoAssign;
   updateImportCount();
@@ -1334,7 +1310,7 @@ function renderHistory() {
   const list = S.history.filter(item => {
     const action = historyAction(item);
     const project = historyProject(item);
-    const text = [project.shipNo, project.displayName, project.productName, item.summary, historyActorName(item)].join(' ').toLowerCase();
+    const text = [project.shipNo, project.displayName, item.summary, historyActorName(item)].join(' ').toLowerCase();
     return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
   });
   if ($('historyEmpty')) $('historyEmpty').hidden = list.length !== 0;
@@ -1342,7 +1318,7 @@ function renderHistory() {
     const project = historyProject(item);
     const actorId = historyActorId(item);
     const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(project.productName || item.summary || '')}</p></button></article>`;
+    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(item.summary || project.notes || '')}</p></button></article>`;
   }).join('');
 }
 
@@ -1367,7 +1343,7 @@ function openHistoryDetail(index) {
   if (!item) return;
   const before = item.before || null;
   const after = item.after || item.project || null;
-  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(data.productName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
+  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
   $('historyDetailBody').innerHTML = `<header><h2>更新履歴の詳細</h2><button type="button" data-close>×</button></header><p><strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>　${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</p><p>操作者：${esc(historyActorName(item))}</p><div class="history-compare"><section><h3>変更前</h3>${table(before)}</section><section><h3>変更後</h3>${table(after)}</section></div><footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
   $('historyDetailDialog').showModal();
 }
@@ -1479,10 +1455,9 @@ function bindFixedEvents() {
   $('projectForm').onsubmit = async event => {
     event.preventDefault();
     const employeeIds = checkedValues('employeeChoices');
-    if (!employeeIds.length) { $('employeeChoiceError').textContent = '担当者を1人以上選択してください。'; return; }
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: $('displayName').value.trim(), productName: $('productName').value.trim(), client: $('client').value.trim(), employeeIds, employeeId: employeeIds[0], dueDate: $('dueDate').value, notes: $('notes').value.trim(), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: safeTrim($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value, notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1540,10 +1515,9 @@ function bindFixedEvents() {
     const projects = rows.map(row => {
       const ids = [...row.querySelectorAll('.employee-multi-dropdown input[type="checkbox"]:checked')].map(input => input.value);
       const employeeId = ids[0] || '';
-      return { ...common, productName: row.querySelector('.import-product').value.trim(), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
+      return { ...common, productName: row.dataset.importProduct || '', quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
     });
     if (!projects.length) { $('importError').textContent = '登録する明細を選択してください。'; return; }
-    if (!common.displayName || projects.some(item => !item.productName || !item.employeeIds.length || !item.dueDate)) { $('importError').textContent = '表示名・製品名・担当者・納期を確認してください。'; return; }
     $('importError').textContent = '';
     try {
       await api(API.projects, { method: 'POST', body: { projects, ...actorPayload() } });
@@ -1603,18 +1577,17 @@ function bindFixedEvents() {
   $('applyUpdate').onclick = async () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; await load(); toast('最新のデータに更新しました'); };
   $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
   $('manageInternalSchedule').onclick = () => openInternalSchedule();
-  $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
   $('resetInternalSchedule').onclick = resetInternalScheduleForm;
   $('internalScheduleForm').onsubmit = event => {
     event.preventDefault();
-    const type = $('internalScheduleType').value;
+    const type = 'monthly';
     const item = normalizeInternalSchedule({
       id: $('internalScheduleId').value || `internal-${Date.now()}`,
       title: safeTrim($('internalScheduleTitle').value),
       type,
-      day: ['monthly', 'yearly'].includes(type) ? Number($('internalScheduleDay').value) : 1,
-      month: type === 'yearly' ? Number($('internalScheduleMonth').value) : 1,
-      date: type === 'once' ? $('internalScheduleDate').value : '',
+      day: Number($('internalScheduleDay').value) || 1,
+      month: 1,
+      date: '',
       time: $('internalScheduleTime').value,
       note: safeTrim($('internalScheduleNote').value)
     });
@@ -1700,7 +1673,7 @@ function bindDelegatedEvents() {
       }
       else if (button.dataset.copyProject) {
         const source=S.projects.find(x=>x.id===button.dataset.copyProject);
-        if(source){ $('detailDialog')?.close(); openProject(); $('shipNo').value=source.shipNo||''; $('displayName').value=source.displayName||''; $('productName').value=source.productName||''; $('client').value=source.client||''; $('dueDate').value=source.dueDate||''; $('notes').value=source.notes||''; renderEmployeeCheckboxes('employeeChoices',projectEmployeeIds(source)); toast('案件内容をコピーしました。納期などを確認して登録してください。'); }
+        if(source){ $('detailDialog')?.close(); openProject(); $('shipNo').value=source.shipNo||''; $('displayName').value=source.displayName||''; $('client').value=source.client||''; $('dueDate').value=source.dueDate||''; $('notes').value=source.notes||''; renderEmployeeCheckboxes('employeeChoices',projectEmployeeIds(source)); toast('案件内容をコピーしました。納期などを確認して登録してください。'); }
       }
       else if (button.id === 'importExcel') openImport();
       else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
