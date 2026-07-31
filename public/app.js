@@ -10,6 +10,7 @@ const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
 const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
 const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
 const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
+const STORAGE_PROJECT_LIFECYCLE = 'hikariPortal.projectLifecycle.v1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -28,7 +29,8 @@ const S = {
   pollTimer: null,
   materials: [],
   assigneeProgress: {},
-  trash: []
+  trash: [],
+  projectLifecycle: {}
 };
 
 const $ = id => document.getElementById(id);
@@ -103,6 +105,94 @@ function saveAssigneeProgress() {
   localStorage.setItem(STORAGE_ASSIGNEE_PROGRESS, JSON.stringify(S.assigneeProgress));
 }
 
+function loadProjectLifecycle() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_PROJECT_LIFECYCLE) || '{}');
+    S.projectLifecycle = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+  } catch {
+    S.projectLifecycle = {};
+  }
+}
+
+function saveProjectLifecycle() {
+  localStorage.setItem(STORAGE_PROJECT_LIFECYCLE, JSON.stringify(S.projectLifecycle));
+}
+
+function projectLifecycle(project) {
+  const saved = S.projectLifecycle[project.id];
+  const status = saved?.status === 'delivered'
+    ? 'delivered'
+    : saved?.status === 'production_complete'
+      ? 'production_complete'
+      : 'in_progress';
+  return {
+    status,
+    productionCompletedAt: saved?.productionCompletedAt || '',
+    productionCompletedBy: saved?.productionCompletedBy || '',
+    deliveredAt: saved?.deliveredAt || '',
+    deliveredBy: saved?.deliveredBy || ''
+  };
+}
+
+function lifecycleLabel(status) {
+  if (status === 'delivered') return '納品完了';
+  if (status === 'production_complete') return '製作完了';
+  return '製作中';
+}
+
+function lifecycleBadgeHtml(project, compact = false) {
+  const lifecycle = projectLifecycle(project);
+  return `<span class="project-status status-${esc(lifecycle.status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(lifecycle.status))}</span>`;
+}
+
+function setProjectLifecycle(projectId, status) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project) return false;
+  const now = new Date().toISOString();
+  const actor = employeeName(S.actorEmployeeId);
+  const current = projectLifecycle(project);
+
+  if (status === 'production_complete') {
+    const summary = assigneeProgressSummary(project);
+    if (!summary.total || summary.completed !== summary.total) {
+      toast('担当者全員を完了にしてから製作完了にしてください。');
+      return false;
+    }
+    S.projectLifecycle[projectId] = {
+      ...current,
+      status: 'production_complete',
+      productionCompletedAt: now,
+      productionCompletedBy: actor,
+      deliveredAt: '',
+      deliveredBy: ''
+    };
+  } else if (status === 'delivered') {
+    if (current.status !== 'production_complete') {
+      toast('先に製作完了にしてください。');
+      return false;
+    }
+    S.projectLifecycle[projectId] = {
+      ...current,
+      status: 'delivered',
+      deliveredAt: now,
+      deliveredBy: actor
+    };
+  } else {
+    S.projectLifecycle[projectId] = {
+      status: 'in_progress',
+      productionCompletedAt: '',
+      productionCompletedBy: '',
+      deliveredAt: '',
+      deliveredBy: ''
+    };
+  }
+
+  saveProjectLifecycle();
+  renderSchedule();
+  renderDeadlines();
+  return true;
+}
+
 
 function loadTrash() {
   try {
@@ -150,7 +240,8 @@ function addProjectToTrash(project) {
     deletedBy: employeeName(S.actorEmployeeId),
     originalProjectId: project.id,
     project: trashProjectPayload(project),
-    assigneeProgress: projectAssigneeProgress(project)
+    assigneeProgress: projectAssigneeProgress(project),
+    lifecycle: projectLifecycle(project)
   };
   S.trash.unshift(entry);
   saveTrash();
@@ -177,6 +268,8 @@ async function moveProjectToTrash(project) {
     await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() });
     delete S.assigneeProgress[project.id];
     saveAssigneeProgress();
+    delete S.projectLifecycle[project.id];
+    saveProjectLifecycle();
     return true;
   } catch (error) {
     removeTrashEntry(entry.trashId);
@@ -196,6 +289,10 @@ async function restoreTrashEntry(trashId) {
       projectEmployeeIds(restored).map(id => [id, entry.assigneeProgress[id] === true])
     );
     saveAssigneeProgress();
+  }
+  if (restored && entry.lifecycle) {
+    S.projectLifecycle[restored.id] = { ...entry.lifecycle };
+    saveProjectLifecycle();
   }
   removeTrashEntry(trashId);
   renderTrash();
@@ -241,6 +338,9 @@ function setAssigneeComplete(projectId, employeeId, completed) {
   progress[employeeId] = Boolean(completed);
   S.assigneeProgress[projectId] = progress;
   saveAssigneeProgress();
+  if (!completed && projectLifecycle(project).status !== 'in_progress') {
+    setProjectLifecycle(projectId, 'in_progress');
+  }
   return true;
 }
 
@@ -261,6 +361,43 @@ function assigneeProgressHtml(project) {
       </label>`).join('')}
     </div>
     <p class="assignee-progress-note">チェック状態は、この端末のブラウザに保存されます。</p>
+  </section>`;
+}
+
+function lifecycleDetailHtml(project) {
+  const lifecycle = projectLifecycle(project);
+  const summary = assigneeProgressSummary(project);
+  const canCompleteProduction = summary.total > 0 && summary.completed === summary.total;
+  const productionMeta = lifecycle.productionCompletedAt
+    ? `<small>製作完了：${esc(jpDateTime(lifecycle.productionCompletedAt))}${lifecycle.productionCompletedBy ? ` ／ ${esc(lifecycle.productionCompletedBy)}` : ''}</small>`
+    : '';
+  const deliveryMeta = lifecycle.deliveredAt
+    ? `<small>納品完了：${esc(jpDateTime(lifecycle.deliveredAt))}${lifecycle.deliveredBy ? ` ／ ${esc(lifecycle.deliveredBy)}` : ''}</small>`
+    : '';
+
+  let actions = '';
+  if (lifecycle.status === 'in_progress') {
+    actions = `<button type="button" class="production-complete-button" data-lifecycle="production_complete" data-project-id="${esc(project.id)}" ${canCompleteProduction ? '' : 'disabled'}>製作完了にする</button>`;
+  } else if (lifecycle.status === 'production_complete') {
+    actions = `<button type="button" class="secondary" data-lifecycle="in_progress" data-project-id="${esc(project.id)}">製作中に戻す</button><button type="button" class="delivery-complete-button" data-lifecycle="delivered" data-project-id="${esc(project.id)}">納品完了にする</button>`;
+  } else {
+    actions = `<button type="button" class="secondary" data-lifecycle="production_complete" data-project-id="${esc(project.id)}">納品完了を取り消す</button>`;
+  }
+
+  return `<section class="project-lifecycle">
+    <div class="project-lifecycle-heading">
+      <div><h3>案件ステータス</h3><p>製作から納品までの状況を管理します。</p></div>
+      ${lifecycleBadgeHtml(project)}
+    </div>
+    <div class="project-lifecycle-steps status-${esc(lifecycle.status)}" aria-label="案件の進捗">
+      <span class="is-done">受注</span><i></i>
+      <span class="${lifecycle.status !== 'in_progress' ? 'is-done' : 'is-current'}">製作完了</span><i></i>
+      <span class="${lifecycle.status === 'delivered' ? 'is-done is-current' : ''}">納品完了</span>
+    </div>
+    <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
+    ${!canCompleteProduction && lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">担当者全員が完了すると「製作完了にする」を押せます。</p>' : ''}
+    <div class="project-lifecycle-actions">${actions}</div>
+    <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
   </section>`;
 }
 
@@ -426,7 +563,7 @@ function filtered() {
 }
 
 function projectCard(project, employeeId) {
-  return `<button class="job ${project.completed ? 'done' : ''}" style="${employeeColorStyle(employeeId)}" data-detail="${esc(project.id)}"><b>${esc(project.shipNo || '—')}</b><span>${esc(project.displayName)}</span><small>${esc(project.productName)}</small></button>`;
+  return `<button class="job ${project.completed ? 'done' : ''} lifecycle-${esc(projectLifecycle(project).status)}" style="${employeeColorStyle(employeeId)}" data-detail="${esc(project.id)}"><span class="job-topline"><b>${esc(project.shipNo || '—')}</b>${lifecycleBadgeHtml(project, true)}</span><span>${esc(project.displayName)}</span><small>${esc(project.productName)}</small></button>`;
 }
 
 function renderSchedule() {
@@ -462,14 +599,15 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
 }
 
 function renderDeadlines() {
-  const list = filtered().slice().sort((a, b) => Number(a.completed) - Number(b.completed) || String(a.dueDate).localeCompare(String(b.dueDate)));
+  const statusOrder = { in_progress: 0, production_complete: 1, delivered: 2 };
+  const list = filtered().slice().sort((a, b) => statusOrder[projectLifecycle(a).status] - statusOrder[projectLifecycle(b).status] || String(a.dueDate).localeCompare(String(b.dueDate)));
   const count = S.selectedProjectIds.size;
   const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}件をごみ箱へ</button></div>`;
   const items = list.length ? list.map(project => `
     <article class="deadline ${project.completed ? 'done' : ''}">
       <input type="checkbox" class="project-select" data-select-project="${esc(project.id)}" ${S.selectedProjectIds.has(project.id) ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
       <button type="button" data-toggle="${esc(project.id)}" class="check">${project.completed ? '✓' : ''}</button>
-      <div><time>${esc(jp(project.dueDate))}</time><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
+      <div><div class="deadline-heading"><time>${esc(jp(project.dueDate))}</time>${lifecycleBadgeHtml(project, true)}</div><h3>${esc(project.shipNo)} ${esc(project.displayName)}</h3><p>${esc(project.productName)}${project.quantity ? ` × ${esc(project.quantity)}` : ''} ／ ${esc(employeeNames(project))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
       <button type="button" data-edit="${esc(project.id)}">編集</button>
       <button type="button" data-delete="${esc(project.id)}">ごみ箱へ</button>
     </article>
@@ -499,6 +637,7 @@ function renderTrash() {
         <dl>
           <div><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd></div>
           <div><dt>担当者</dt><dd>${esc(names)}</dd></div>
+          <div><dt>状態</dt><dd>${entry.lifecycle ? esc(lifecycleLabel(entry.lifecycle.status)) : '製作中'}</dd></div>
           <div><dt>削除日時</dt><dd>${esc(jpDateTime(entry.deletedAt))}</dd></div>
           <div><dt>削除した人</dt><dd>${esc(entry.deletedBy || '未設定')}</dd></div>
         </dl>
@@ -551,7 +690,7 @@ async function load({ silent = false } = {}) {
 function openDetail(id) {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}${lifecycleDetailHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -1000,6 +1139,15 @@ function bindDelegatedEvents() {
       else if (button.dataset.trashRestore) await restoreTrashEntry(button.dataset.trashRestore);
       else if (button.dataset.trashDelete) permanentlyDeleteTrashEntry(button.dataset.trashDelete);
       else if (button.id === 'emptyTrash') emptyTrash();
+      else if (button.dataset.lifecycle) {
+        const projectId = button.dataset.projectId;
+        const targetStatus = button.dataset.lifecycle;
+        const messages = { production_complete: '製作完了にしますか？', delivered: '納品完了にしますか？', in_progress: '製作中に戻しますか？' };
+        if (confirm(messages[targetStatus] || 'ステータスを変更しますか？') && setProjectLifecycle(projectId, targetStatus)) {
+          openDetail(projectId);
+          toast(`${lifecycleLabel(targetStatus)}に変更しました`);
+        }
+      }
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
@@ -1108,6 +1256,7 @@ async function init() {
   loadMaterials();
   loadAssigneeProgress();
   loadTrash();
+  loadProjectLifecycle();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();
