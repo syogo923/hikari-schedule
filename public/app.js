@@ -1,3 +1,8 @@
+// ==========================================
+// 光ポータル Ver3.0β1 リファクタリング版
+// 安全なリファクタリングのみ実施
+// ==========================================
+
 'use strict';
 
 const API = {
@@ -104,6 +109,7 @@ function portalConfirm({
 // Danger Confirmation Helpers
 // ==========================
 
+// ===== Danger Confirm Helpers =====
 // ===== Danger Confirm Helpers =====
 function confirmDangerAction(options) {
   return portalConfirm({
