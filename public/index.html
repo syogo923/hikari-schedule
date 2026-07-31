@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver2.8.4</title>
+  <title>光ポータル Ver2.8.5</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=2.8.4">
+  <link rel="stylesheet" href="/style.css?v=2.8.5">
 </head>
 
 <body>
@@ -941,6 +941,30 @@
 
   </dialog>
 
+
+  <!-- 共通確認ダイアログ -->
+  <dialog
+    id="portalConfirmDialog"
+    class="portal-confirm-dialog"
+    aria-labelledby="portalConfirmTitle"
+  >
+    <div class="portal-confirm-panel">
+      <div id="portalConfirmIcon" class="portal-confirm-icon" aria-hidden="true">✓</div>
+
+      <div class="portal-confirm-copy">
+        <h2 id="portalConfirmTitle">確認</h2>
+        <p id="portalConfirmMessage"></p>
+        <p id="portalConfirmDetail" class="portal-confirm-detail" hidden></p>
+        <p id="portalConfirmNote" class="portal-confirm-note" hidden></p>
+      </div>
+
+      <footer>
+        <button type="button" id="portalConfirmCancel" class="secondary">キャンセル</button>
+        <button type="button" id="portalConfirmOk" class="primary">実行する</button>
+      </footer>
+    </div>
+  </dialog>
+
   <!-- トースト通知 -->
   <div
     id="toast"
@@ -949,7 +973,7 @@
   ></div>
 
   <script
-    src="/app.js?v=2.8.4"
+    src="/app.js?v=2.8.5"
     defer
   ></script>
 
