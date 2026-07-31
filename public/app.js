@@ -100,7 +100,6 @@ function portalConfirm({
 }
 
 
-
 function confirmDangerAction(options) {
   return portalConfirm({
     tone: 'danger',
@@ -109,7 +108,10 @@ function confirmDangerAction(options) {
   });
 }
 
-async function api(url, options = {}) {
+// =========================
+// API
+// =========================
+$1url, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
     headers: options.body ? { 'content-type': 'application/json' } : undefined,
