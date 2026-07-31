@@ -998,12 +998,12 @@
     </div>
   </dialog>
 
-  <!-- 日付付箋 -->
+  <!-- 日付メモ -->
   <dialog id="stickyNoteDialog" class="sticky-note-dialog">
     <form id="stickyNoteForm">
-      <header><div><p class="dialog-eyebrow">日付ごとの付箋</p><h2 id="stickyNoteTitle">付箋</h2></div><button type="button" data-close>×</button></header>
+      <header><div><p class="dialog-eyebrow">日付ごとのメモ</p><h2 id="stickyNoteTitle">メモ</h2></div><button type="button" data-close>×</button></header>
       <input id="stickyNoteDate" type="hidden">
-      <label>内容<textarea id="stickyNoteText" rows="5" maxlength="300" placeholder="入力した日だけ、ホームの付箋欄に色が付きます。"></textarea></label>
+      <label>内容<textarea id="stickyNoteText" rows="5" maxlength="300" placeholder="この日付のメモを入力してください。入力がある日はアイコンに色が付きます。"></textarea></label>
       <footer><button type="button" id="clearStickyNote" class="danger">内容を消す</button><button type="submit" class="primary">保存</button></footer>
     </form>
   </dialog>
