@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 社内予定・付箋・月間カレンダー・コピー機能 */
+/* 光ポータル Ver3.1 現場改善版 - 月次社内予定・共有進捗・1行納期一覧 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -185,16 +185,43 @@ function saveStickyNotes() {
   renderSchedule();
 }
 
+function normalizeInternalSchedule(item = {}) {
+  // 旧版の「毎週」予定は、読み込み時に単発扱いへは変換せず一覧に残す。
+  // 編集・新規登録時は monthly / yearly / once のみを使用する。
+  return {
+    id: item.id || `internal-${Date.now()}`,
+    title: safeTrim(item.title),
+    type: ['monthly', 'yearly', 'once'].includes(item.type) ? item.type : 'once',
+    day: Number(item.day || 1),
+    month: Number(item.month || 1),
+    date: item.date || '',
+    time: item.time || '',
+    note: safeTrim(item.note)
+  };
+}
+
 function internalSchedulesForDate(date) {
-  const weekday = new Date(`${date}T00:00:00`).getDay();
-  return S.internalSchedules.filter(item => item.type === 'once' ? item.date === date : Number(item.weekday) === weekday)
-    .sort((a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')) || String(a.title).localeCompare(String(b.title), 'ja'));
+  const target = new Date(`${date}T00:00:00`);
+  const day = target.getDate();
+  const month = target.getMonth() + 1;
+  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => {
+    if (item.type === 'once') return item.date === date;
+    if (item.type === 'monthly') return item.day === day;
+    if (item.type === 'yearly') return item.month === month && item.day === day;
+    return false;
+  }).sort((a, b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')) || String(a.title).localeCompare(String(b.title), 'ja'));
+}
+
+function internalScheduleTypeLabel(item) {
+  if (item.type === 'monthly') return `毎月${item.day}日`;
+  if (item.type === 'yearly') return `毎年${item.month}月${item.day}日`;
+  return item.date ? jp(item.date) : '日付未設定';
 }
 
 function internalScheduleHtml(date) {
   const items = internalSchedulesForDate(date);
   if (!items.length) return '<button type="button" class="internal-empty" data-open-internal-schedule>＋</button>';
-  return items.map(item => `<button type="button" class="internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}"><small>${esc(item.time || '')}${item.type === 'weekly' ? ' 毎週' : ''}</small><strong>${esc(item.title)}</strong>${item.note ? `<span>${esc(item.note)}</span>` : ''}</button>`).join('');
+  return items.map(item => `<button type="button" class="internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}"><small>${esc(item.time || '')}${item.type !== 'once' ? ` ${esc(internalScheduleTypeLabel(item))}` : ''}</small><strong>${esc(item.title)}</strong>${item.note ? `<span>${esc(item.note)}</span>` : ''}</button>`).join('');
 }
 
 function stickyNoteCellHtml(date) {
@@ -206,32 +233,39 @@ function stickyNoteCellHtml(date) {
 function renderInternalScheduleList() {
   const host = $('internalScheduleList');
   if (!host) return;
-  const weekdayNames = ['日','月','火','水','木','金','土'];
-  host.innerHTML = S.internalSchedules.length ? [...S.internalSchedules].sort((a,b) => String(a.type).localeCompare(String(b.type)) || Number(a.weekday ?? 9)-Number(b.weekday ?? 9) || String(a.time||'').localeCompare(String(b.time||''))).map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${item.type === 'weekly' ? `毎週${weekdayNames[Number(item.weekday)]}曜` : esc(jp(item.date))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
+  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => String(a.type).localeCompare(String(b.type)) || Number(a.month)-Number(b.month) || Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
+  host.innerHTML = items.length ? items.map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${esc(internalScheduleTypeLabel(item))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
 }
 
 function resetInternalScheduleForm() {
   $('internalScheduleForm')?.reset();
   $('internalScheduleId').value = '';
-  $('internalScheduleType').value = 'weekly';
+  $('internalScheduleType').value = 'monthly';
+  $('internalScheduleDay').value = '1';
+  $('internalScheduleMonth').value = '1';
   updateInternalScheduleTypeUi();
 }
 
 function updateInternalScheduleTypeUi() {
-  const once = $('internalScheduleType')?.value === 'once';
-  if ($('internalWeekdayLabel')) $('internalWeekdayLabel').hidden = once;
-  if ($('internalDateLabel')) $('internalDateLabel').hidden = !once;
-  if ($('internalScheduleDate')) $('internalScheduleDate').required = once;
+  const type = $('internalScheduleType')?.value || 'monthly';
+  if ($('internalMonthLabel')) $('internalMonthLabel').hidden = type !== 'yearly';
+  if ($('internalDayLabel')) $('internalDayLabel').hidden = !['monthly', 'yearly'].includes(type);
+  if ($('internalDateLabel')) $('internalDateLabel').hidden = type !== 'once';
+  if ($('internalScheduleDate')) $('internalScheduleDate').required = type === 'once';
+  if ($('internalScheduleDay')) $('internalScheduleDay').required = ['monthly', 'yearly'].includes(type);
+  if ($('internalScheduleMonth')) $('internalScheduleMonth').required = type === 'yearly';
 }
 
 function openInternalSchedule(id = '') {
   resetInternalScheduleForm();
-  const item = S.internalSchedules.find(x => x.id === id);
+  const source = S.internalSchedules.find(x => x.id === id);
+  const item = source ? normalizeInternalSchedule(source) : null;
   if (item) {
     $('internalScheduleId').value = item.id;
     $('internalScheduleTitle').value = item.title || '';
-    $('internalScheduleType').value = item.type || 'weekly';
-    $('internalScheduleWeekday').value = String(item.weekday ?? 1);
+    $('internalScheduleType').value = item.type || 'monthly';
+    $('internalScheduleDay').value = String(item.day || 1);
+    $('internalScheduleMonth').value = String(item.month || 1);
     $('internalScheduleDate').value = item.date || '';
     $('internalScheduleTime').value = item.time || '';
     $('internalScheduleNote').value = item.note || '';
@@ -349,7 +383,9 @@ function saveProjectLifecycle() {
 }
 
 function projectLifecycle(project) {
-  const saved = S.projectLifecycle[project.id];
+  const remote = project.portalState?.lifecycle || project.lifecycle;
+  const local = S.projectLifecycle[project.id];
+  const saved = local && typeof local === 'object' ? local : remote;
   const status = saved?.status === 'delivered'
     ? 'delivered'
     : saved?.status === 'production_complete'
@@ -375,7 +411,43 @@ function lifecycleBadgeHtml(project, compact = false) {
   return `<span class="project-status status-${esc(lifecycle.status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(lifecycle.status))}</span>`;
 }
 
-function setProjectLifecycle(projectId, status) {
+function sharedProjectBody(project) {
+  const employeeIds = projectEmployeeIds(project);
+  const assigneeProgress = projectAssigneeProgress(project);
+  const lifecycle = projectLifecycle(project);
+  return {
+    id: project.id,
+    shipNo: project.shipNo || '',
+    displayName: project.displayName || '',
+    productName: project.productName || '',
+    client: project.client || '',
+    employeeIds,
+    employeeId: employeeIds[0] || '',
+    dueDate: project.dueDate || '',
+    notes: project.notes || '',
+    quantity: project.quantity || 0,
+    spec: project.spec || '',
+    completed: Boolean(project.completed),
+    assigneeProgress,
+    lifecycle,
+    portalState: { assigneeProgress, lifecycle },
+    ...actorPayload()
+  };
+}
+
+async function persistSharedProjectState(projectId) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project) return false;
+  const progress = projectAssigneeProgress(project);
+  const lifecycle = projectLifecycle(project);
+  project.assigneeProgress = { ...progress };
+  project.lifecycle = { ...lifecycle };
+  project.portalState = { assigneeProgress: { ...progress }, lifecycle: { ...lifecycle } };
+  await api(API.projects, { method: 'PUT', body: sharedProjectBody(project) });
+  return true;
+}
+
+async function setProjectLifecycle(projectId, status) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project) return false;
   const now = new Date().toISOString();
@@ -418,6 +490,7 @@ function setProjectLifecycle(projectId, status) {
   }
 
   saveProjectLifecycle();
+  await persistSharedProjectState(projectId);
   renderSchedule();
   renderDeadlines();
   return true;
@@ -593,7 +666,9 @@ async function emptyTrash() {
 }
 
 function projectAssigneeProgress(project) {
-  const saved = S.assigneeProgress[project.id];
+  const remote = project.portalState?.assigneeProgress || project.assigneeProgress;
+  const local = S.assigneeProgress[project.id];
+  const saved = local && typeof local === 'object' ? local : remote;
   const current = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
   return Object.fromEntries(projectEmployeeIds(project).map(id => [id, current[id] === true]));
 }
@@ -605,7 +680,7 @@ function assigneeProgressSummary(project) {
   return { progress, total, completed };
 }
 
-function setAssigneeComplete(projectId, employeeId, completed) {
+async function setAssigneeComplete(projectId, employeeId, completed) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
 
@@ -619,12 +694,14 @@ function setAssigneeComplete(projectId, employeeId, completed) {
 
   // 担当者全員が完了したら、案件も自動で「製作完了」にする。
   if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
-    setProjectLifecycle(projectId, 'production_complete');
+    await setProjectLifecycle(projectId, 'production_complete');
   }
 
   // 誰か一人でも未完了へ戻したら、納品前の案件は「製作中」に戻す。
   if (!completed && lifecycle.status !== 'in_progress') {
-    setProjectLifecycle(projectId, 'in_progress');
+    await setProjectLifecycle(projectId, 'in_progress');
+  } else if (!(summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress')) {
+    await persistSharedProjectState(projectId);
   }
 
   return true;
@@ -646,7 +723,7 @@ function assigneeProgressHtml(project, effect = '') {
         <small>${progress[id] ? '完了' : '未完了'}</small>
       </label>`).join('')}
     </div>
-    <p class="assignee-progress-note">チェック状態は、この端末のブラウザに保存されます。</p>
+    <p class="assignee-progress-note">チェック状態は共有保存され、ほかのPCにも更新時に反映されます。</p>
   </section>`;
 }
 
@@ -915,13 +992,13 @@ function renderSchedule() {
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
   const groups = groupProjects(filtered());
-  let html = '<thead><tr><th class="date-col">日付</th><th class="date-memo-col" aria-label="日付メモ"></th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '<th class="internal-col">社内スケジュール</th></tr></thead><tbody>';
+  let html = '<thead><tr><th class="date-col">日付</th><th class="date-memo-col" aria-label="日付メモ"></th><th class="internal-col">社内スケジュール</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
-    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td>` + employees.map(item => {
+    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td><td class="internal-schedule-cell">${internalScheduleHtml(date)}</td>` + employees.map(item => {
       const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
-    }).join('') + `<td class="internal-schedule-cell">${internalScheduleHtml(date)}</td></tr>`;
+    }).join('') + `</tr>`;
   }
   html += '</tbody>';
   if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
@@ -949,14 +1026,17 @@ function renderDeadlines() {
   const items = groups.length ? groups.map(group => {
     const project = group.representative;
     const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
-    const products = group.projects.slice(0, 3).map(item => item.productName || '製品名未設定').join('・');
-    const more = group.projects.length > 3 ? ` ほか${group.projects.length - 3}件` : '';
-    return `<article class="deadline grouped-deadline lifecycle-${esc(groupLifecycleStatus(group))}">
+    const products = group.projects.slice(0, 2).map(item => item.productName || '製品名未設定').join('・');
+    const more = group.projects.length > 2 ? `ほか${group.projects.length - 2}件` : '';
+    const summary = group.projects.reduce((acc, item) => { const x=assigneeProgressSummary(item); acc.completed+=x.completed; acc.total+=x.total; return acc; }, {completed:0,total:0});
+    return `<article class="deadline grouped-deadline deadline-one-line lifecycle-${esc(groupLifecycleStatus(group))}">
       <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <button type="button" data-group-detail="${esc(project.id)}" class="check group-count-check" aria-label="案件詳細を開く">${group.projects.length}</button>
-      <div><div class="deadline-heading"><time>${esc(groupDueLabel(group))}</time>${groupLifecycleBadgeHtml(group, true)}</div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h3><p><strong>${group.projects.length}明細</strong> ／ ${esc(products)}${esc(more)} ／ ${esc(groupEmployeeNames(group))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
-      <button type="button" data-group-detail="${esc(project.id)}">詳細</button>
-      <button type="button" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
+      <time>${esc(groupDueLabel(group))}</time>
+      ${groupLifecycleBadgeHtml(group, true)}
+      <button type="button" data-group-detail="${esc(project.id)}" class="deadline-main-link"><strong>${esc(project.shipNo || '—')}</strong><span>${esc(project.displayName || '—')}</span></button>
+      <span class="deadline-inline-meta">${group.projects.length}明細${products ? ` ／ ${esc(products)}` : ''}${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}</span>
+      <button type="button" class="secondary" data-group-detail="${esc(project.id)}">詳細</button>
+      <button type="button" class="danger ghost-danger" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
     </article>`;
   }).join('') : '<div class="notice">案件はありません。</div>';
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
@@ -1022,6 +1102,14 @@ async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
     S.projects = (projectData.projects || []).map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
+    S.projects.forEach(project => {
+      const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
+      const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
+      if (remoteProgress && typeof remoteProgress === 'object') S.assigneeProgress[project.id] = { ...remoteProgress };
+      if (remoteLifecycle && typeof remoteLifecycle === 'object') S.projectLifecycle[project.id] = { ...remoteLifecycle };
+    });
+    saveAssigneeProgress();
+    saveProjectLifecycle();
     S.masters = masterData.masters || S.masters;
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
     render();
@@ -1394,7 +1482,7 @@ function bindFixedEvents() {
     if (!employeeIds.length) { $('employeeChoiceError').textContent = '担当者を1人以上選択してください。'; return; }
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: $('displayName').value.trim(), productName: $('productName').value.trim(), client: $('client').value.trim(), employeeIds, employeeId: employeeIds[0], dueDate: $('dueDate').value, notes: $('notes').value.trim(), quantity: existing?.quantity || 0, spec: existing?.spec || '', ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: $('displayName').value.trim(), productName: $('productName').value.trim(), client: $('client').value.trim(), employeeIds, employeeId: employeeIds[0], dueDate: $('dueDate').value, notes: $('notes').value.trim(), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1520,15 +1608,16 @@ function bindFixedEvents() {
   $('internalScheduleForm').onsubmit = event => {
     event.preventDefault();
     const type = $('internalScheduleType').value;
-    const item = {
+    const item = normalizeInternalSchedule({
       id: $('internalScheduleId').value || `internal-${Date.now()}`,
       title: safeTrim($('internalScheduleTitle').value),
       type,
-      weekday: type === 'weekly' ? Number($('internalScheduleWeekday').value) : null,
+      day: ['monthly', 'yearly'].includes(type) ? Number($('internalScheduleDay').value) : 1,
+      month: type === 'yearly' ? Number($('internalScheduleMonth').value) : 1,
       date: type === 'once' ? $('internalScheduleDate').value : '',
       time: $('internalScheduleTime').value,
       note: safeTrim($('internalScheduleNote').value)
-    };
+    });
     if (!item.title || (type === 'once' && !item.date)) return toast('予定名と日付を確認してください。');
     const index = S.internalSchedules.findIndex(x => x.id === item.id);
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
@@ -1547,14 +1636,14 @@ function bindFixedEvents() {
 }
 
 function bindDelegatedEvents() {
-  document.body.addEventListener('change', event => {
+  document.body.addEventListener('change', async event => {
     const progressCheckbox = event.target.closest('[data-assignee-complete]');
     if (progressCheckbox) {
       const projectId = progressCheckbox.dataset.projectId;
       const employeeId = progressCheckbox.value;
       const project = S.projects.find(item => item.id === projectId);
       const beforeStatus = project ? projectLifecycle(project).status : 'in_progress';
-      if (setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
+      if (await setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
         const afterStatus = project ? projectLifecycle(project).status : beforeStatus;
         const effect = beforeStatus !== afterStatus && afterStatus === 'production_complete'
           ? 'celebrate-production'
@@ -1646,7 +1735,7 @@ function bindDelegatedEvents() {
           ? { title: '納品完了にしますか？', message: 'この案件を納品済みとして記録します。', detail: label, note: '納品完了はあとから取り消せます。', confirmText: '納品完了にする', tone: 'primary', icon: '✓' }
           : { title: `${lifecycleLabel(targetStatus)}に変更しますか？`, message: '案件ステータスを変更します。', detail: label, note: '変更後も必要に応じて戻せます。', confirmText: '変更する', tone: 'warning', icon: '↶' };
         const approved = await portalConfirm(settings);
-        if (approved && setProjectLifecycle(projectId, targetStatus)) {
+        if (approved && await setProjectLifecycle(projectId, targetStatus)) {
           openDetail(projectId, targetStatus === 'delivered' ? 'celebrate-delivery' : 'status-updated');
           toast(`${lifecycleLabel(targetStatus)}に変更しました`);
         }
