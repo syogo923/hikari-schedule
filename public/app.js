@@ -355,29 +355,39 @@ async function restoreTrashEntry(trashId) {
   if (!entry) return toast('ごみ箱の案件が見つかりません。');
 
   const restoredProject = { ...entry.project };
-  await api(API.projects, { method: 'POST', body: { ...restoredProject, ...actorPayload() } });
 
-  // 全件再取得せず、ローカル状態へ直接反映して高速化
+  await api(API.projects, {
+    method: 'POST',
+    body: { ...restoredProject, ...actorPayload() }
+  });
+
+  // 全件再取得せずローカルへ追加
   S.projects.push(restoredProject);
-  S.projects.sort(compareProjects);
 
-  const restored = restoredProject;
-  if (restored && entry.assigneeProgress) {
-    S.assigneeProgress[restored.id] = Object.fromEntries(
-      projectEmployeeIds(restored).map(id => [id, entry.assigneeProgress[id] === true])
+  if (entry.assigneeProgress) {
+    S.assigneeProgress[restoredProject.id] = Object.fromEntries(
+      projectEmployeeIds(restoredProject).map(id => [
+        id,
+        entry.assigneeProgress[id] === true
+      ])
     );
     saveAssigneeProgress();
   }
-  if (restored && entry.lifecycle) {
-    S.projectLifecycle[restored.id] = { ...entry.lifecycle };
+
+  if (entry.lifecycle) {
+    S.projectLifecycle[restoredProject.id] = {
+      ...entry.lifecycle
+    };
     saveProjectLifecycle();
   }
+
   removeTrashEntry(trashId);
+
   renderProjects();
   renderTrash();
+
   toast('案件を復元しました');
 }
-
 async function permanentlyDeleteTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
   if (!entry) return;
