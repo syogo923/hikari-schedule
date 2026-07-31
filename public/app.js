@@ -284,21 +284,28 @@ function trashProjectPayload(project) {
   };
 }
 
-function addProjectToTrash(project) {
-  // 同じ明細を再度ごみ箱へ入れた場合は重複させず、最新の内容へ置き換える。
-  S.trash = S.trash.filter(item => item.originalProjectId !== project.id);
-  const entry = {
+function createTrashEntry(project, deletedAt = new Date().toISOString()) {
+  return {
     trashId: `trash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    deletedAt: new Date().toISOString(),
+    deletedAt,
     deletedBy: employeeName(S.actorEmployeeId),
     originalProjectId: project.id,
     project: trashProjectPayload(project),
     assigneeProgress: projectAssigneeProgress(project),
     lifecycle: projectLifecycle(project)
   };
-  S.trash.unshift(entry);
+}
+
+function addProjectsToTrash(projects) {
+  const entries = projects.map(project => createTrashEntry(project));
+  const replacingIds = new Set(entries.map(entry => entry.originalProjectId));
+  S.trash = [...entries, ...S.trash.filter(item => !replacingIds.has(item.originalProjectId))];
   saveTrash();
-  return entry;
+  return entries;
+}
+
+function addProjectToTrash(project) {
+  return addProjectsToTrash([project])[0];
 }
 
 function removeTrashEntry(trashId) {
@@ -316,33 +323,31 @@ function findRestoredProject(entry, beforeIds) {
 }
 
 async function moveProjectToTrash(project) {
-  const snapshot = {
-    project: { ...project },
-    assigneeProgress: projectAssigneeProgress(project),
-    lifecycle: projectLifecycle(project)
-  };
-  try {
-    await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() });
-  } catch (error) {
-    // 削除自体は成功したのに通信応答だけ失敗する場合があるため、最新一覧で確認する。
-    try {
-      await load();
-      if (S.projects.some(item => item.id === project.id)) throw error;
-    } catch (verifyError) {
-      if (verifyError === error || S.projects.some(item => item.id === project.id)) throw error;
-    }
-  }
-
-  // サーバーから消えたことを確認してから、ごみ箱へ1件だけ保存する。
-  const entry = addProjectToTrash(snapshot.project);
-  entry.assigneeProgress = snapshot.assigneeProgress;
-  entry.lifecycle = snapshot.lifecycle;
-  saveTrash();
+  const snapshot = { ...project };
+  await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() });
+  addProjectToTrash(snapshot);
   delete S.assigneeProgress[project.id];
-  saveAssigneeProgress();
   delete S.projectLifecycle[project.id];
+  saveAssigneeProgress();
   saveProjectLifecycle();
   return true;
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+    }
+  });
+  await Promise.all(runners);
+  return results;
 }
 
 async function restoreTrashEntry(trashId) {
@@ -1120,31 +1125,49 @@ async function confirmBulkDelete() {
   const ids = [...S.selectedProjectIds];
   if (!ids.length) return;
   const targets = ids.map(id => S.projects.find(item => item.id === id)).filter(Boolean);
-  let moved = 0;
-  const failedIds = [];
+  const confirmButton = $('confirmBulkDelete');
+  const originalLabel = confirmButton?.textContent || 'ごみ箱へ移動';
 
-  // 一度に大量通信を発生させないよう、少し間隔を空けて順番に処理する。
-  for (const project of targets) {
-    try {
-      await moveProjectToTrash(project);
-      moved++;
-    } catch {
-      failedIds.push(project.id);
-    }
-    await new Promise(resolve => setTimeout(resolve, 80));
+  if (confirmButton) {
+    confirmButton.disabled = true;
+    confirmButton.textContent = `${targets.length}件を移動中…`;
+  }
+
+  // Phase2: 6件ずつ並列処理。各明細ごとのlocalStorage保存・再描画は行わない。
+  const results = await runWithConcurrency(targets, 6, project =>
+    api(`${API.projects}?id=${encodeURIComponent(project.id)}`, { method: 'DELETE', body: actorPayload() })
+  );
+  const succeeded = targets.filter((_, index) => results[index]?.status === 'fulfilled');
+  const uncertain = targets.filter((_, index) => results[index]?.status === 'rejected');
+
+  // 応答失敗でも削除済みの場合があるため、最後に一覧を1回だけ取得して確定する。
+  await load({ silent: true });
+  const remainingIds = new Set(S.projects.map(project => project.id));
+  const actuallyMoved = [...succeeded, ...uncertain.filter(project => !remainingIds.has(project.id))];
+  const failed = targets.filter(project => remainingIds.has(project.id));
+
+  if (actuallyMoved.length) {
+    addProjectsToTrash(actuallyMoved);
+    actuallyMoved.forEach(project => {
+      delete S.assigneeProgress[project.id];
+      delete S.projectLifecycle[project.id];
+    });
+    saveAssigneeProgress();
+    saveProjectLifecycle();
   }
 
   S.selectedProjectIds.clear();
   $('bulkDeleteDialog').close();
-  await load();
+  render();
 
-  // 最新一覧に残っているものだけを、本当の失敗として数える。
-  const remainingIds = new Set(S.projects.map(project => project.id));
-  const actualFailed = failedIds.filter(id => remainingIds.has(id)).length;
-  const actualMoved = targets.length - actualFailed;
-  toast(actualFailed
-    ? `${actualMoved}件をごみ箱へ移動しました（${actualFailed}件は残っています）`
-    : `${actualMoved}件をごみ箱へ移動しました`);
+  if (confirmButton) {
+    confirmButton.disabled = false;
+    confirmButton.textContent = originalLabel;
+  }
+
+  toast(failed.length
+    ? `${actuallyMoved.length}件をごみ箱へ移動しました（${failed.length}件は残っています）`
+    : `${actuallyMoved.length}件をごみ箱へ移動しました`);
 }
 
 function switchView(view) {
