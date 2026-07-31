@@ -1,3 +1,4 @@
+/* 光ポータル Ver3.0 正式版 - Stable Release */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
