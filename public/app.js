@@ -334,13 +334,25 @@ function assigneeProgressSummary(project) {
 function setAssigneeComplete(projectId, employeeId, completed) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
+
   const progress = projectAssigneeProgress(project);
   progress[employeeId] = Boolean(completed);
   S.assigneeProgress[projectId] = progress;
   saveAssigneeProgress();
-  if (!completed && projectLifecycle(project).status !== 'in_progress') {
+
+  const summary = assigneeProgressSummary(project);
+  const lifecycle = projectLifecycle(project);
+
+  // 担当者全員が完了したら、案件も自動で「製作完了」にする。
+  if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
+    setProjectLifecycle(projectId, 'production_complete');
+  }
+
+  // 誰か一人でも未完了へ戻したら、納品前の案件は「製作中」に戻す。
+  if (!completed && lifecycle.status !== 'in_progress') {
     setProjectLifecycle(projectId, 'in_progress');
   }
+
   return true;
 }
 
@@ -366,8 +378,6 @@ function assigneeProgressHtml(project) {
 
 function lifecycleDetailHtml(project) {
   const lifecycle = projectLifecycle(project);
-  const summary = assigneeProgressSummary(project);
-  const canCompleteProduction = summary.total > 0 && summary.completed === summary.total;
   const productionMeta = lifecycle.productionCompletedAt
     ? `<small>製作完了：${esc(jpDateTime(lifecycle.productionCompletedAt))}${lifecycle.productionCompletedBy ? ` ／ ${esc(lifecycle.productionCompletedBy)}` : ''}</small>`
     : '';
@@ -376,17 +386,15 @@ function lifecycleDetailHtml(project) {
     : '';
 
   let actions = '';
-  if (lifecycle.status === 'in_progress') {
-    actions = `<button type="button" class="production-complete-button" data-lifecycle="production_complete" data-project-id="${esc(project.id)}" ${canCompleteProduction ? '' : 'disabled'}>製作完了にする</button>`;
-  } else if (lifecycle.status === 'production_complete') {
-    actions = `<button type="button" class="secondary" data-lifecycle="in_progress" data-project-id="${esc(project.id)}">製作中に戻す</button><button type="button" class="delivery-complete-button" data-lifecycle="delivered" data-project-id="${esc(project.id)}">納品完了にする</button>`;
-  } else {
+  if (lifecycle.status === 'production_complete') {
+    actions = `<button type="button" class="delivery-complete-button" data-lifecycle="delivered" data-project-id="${esc(project.id)}">納品完了にする</button>`;
+  } else if (lifecycle.status === 'delivered') {
     actions = `<button type="button" class="secondary" data-lifecycle="production_complete" data-project-id="${esc(project.id)}">納品完了を取り消す</button>`;
   }
 
   return `<section class="project-lifecycle">
     <div class="project-lifecycle-heading">
-      <div><h3>案件ステータス</h3><p>製作から納品までの状況を管理します。</p></div>
+      <div><h3>案件ステータス</h3><p>製作完了は担当者欄のチェックに連動し、納品完了のみここで操作します。</p></div>
       ${lifecycleBadgeHtml(project)}
     </div>
     <div class="project-lifecycle-steps status-${esc(lifecycle.status)}" aria-label="案件の進捗">
@@ -395,8 +403,8 @@ function lifecycleDetailHtml(project) {
       <span class="${lifecycle.status === 'delivered' ? 'is-done is-current' : ''}">納品完了</span>
     </div>
     <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
-    ${!canCompleteProduction && lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">担当者全員が完了すると「製作完了にする」を押せます。</p>' : ''}
-    <div class="project-lifecycle-actions">${actions}</div>
+    ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">担当者全員を完了にすると、自動で「製作完了」になります。</p>' : ''}
+    ${actions ? `<div class="project-lifecycle-actions">${actions}</div>` : ''}
     <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
   </section>`;
 }
