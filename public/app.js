@@ -356,10 +356,10 @@ function setAssigneeComplete(projectId, employeeId, completed) {
   return true;
 }
 
-function assigneeProgressHtml(project) {
+function assigneeProgressHtml(project, effect = '') {
   const { progress, total, completed } = assigneeProgressSummary(project);
   if (!total) return '<p class="muted">担当者が設定されていません。</p>';
-  return `<section class="assignee-progress" aria-labelledby="assigneeProgressHeading">
+  return `<section class="assignee-progress ${esc(effect)}" aria-labelledby="assigneeProgressHeading">
     <div class="assignee-progress-heading">
       <h3 id="assigneeProgressHeading">担当者ごとの完了</h3>
       <strong>${completed} / ${total} 完了</strong>
@@ -376,7 +376,7 @@ function assigneeProgressHtml(project) {
   </section>`;
 }
 
-function lifecycleDetailHtml(project) {
+function lifecycleDetailHtml(project, effect = '') {
   const lifecycle = projectLifecycle(project);
   const productionMeta = lifecycle.productionCompletedAt
     ? `<small>製作完了：${esc(jpDateTime(lifecycle.productionCompletedAt))}${lifecycle.productionCompletedBy ? ` ／ ${esc(lifecycle.productionCompletedBy)}` : ''}</small>`
@@ -392,18 +392,22 @@ function lifecycleDetailHtml(project) {
     actions = `<button type="button" class="secondary" data-lifecycle="production_complete" data-project-id="${esc(project.id)}">納品完了を取り消す</button>`;
   }
 
-  return `<section class="project-lifecycle">
+  const productionDone = lifecycle.status === 'production_complete' || lifecycle.status === 'delivered';
+  const delivered = lifecycle.status === 'delivered';
+
+  return `<section class="project-lifecycle ${esc(effect)}">
     <div class="project-lifecycle-heading">
-      <div><h3>案件ステータス</h3><p>製作完了は担当者欄のチェックに連動し、納品完了のみここで操作します。</p></div>
+      <div><h3>案件ステータス</h3><p>担当者全員の完了で製作完了へ自動更新され、納品完了のみここで操作します。</p></div>
       ${lifecycleBadgeHtml(project)}
     </div>
     <div class="project-lifecycle-steps status-${esc(lifecycle.status)}" aria-label="案件の進捗">
       <span class="is-done">受注</span><i></i>
-      <span class="${lifecycle.status !== 'in_progress' ? 'is-done' : 'is-current'}">製作完了</span><i></i>
-      <span class="${lifecycle.status === 'delivered' ? 'is-done is-current' : ''}">納品完了</span>
+      <span class="${lifecycle.status === 'in_progress' ? 'is-current' : 'is-done'}">製作中</span><i></i>
+      <span class="${productionDone ? (delivered ? 'is-done' : 'is-done is-current') : ''}">製作完了</span><i></i>
+      <span class="${delivered ? 'is-done is-current' : ''}">納品完了</span>
     </div>
     <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
-    ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">担当者全員を完了にすると、自動で「製作完了」になります。</p>' : ''}
+    ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">最後の担当者が完了すると、自動で「製作完了」に切り替わります。</p>' : ''}
     ${actions ? `<div class="project-lifecycle-actions">${actions}</div>` : ''}
     <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
   </section>`;
@@ -695,10 +699,10 @@ async function load({ silent = false } = {}) {
   }
 }
 
-function openDetail(id) {
+function openDetail(id, effect = '') {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
-  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project)}${lifecycleDetailHtml(project)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><h2>案件詳細</h2><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -1100,9 +1104,19 @@ function bindDelegatedEvents() {
     if (progressCheckbox) {
       const projectId = progressCheckbox.dataset.projectId;
       const employeeId = progressCheckbox.value;
+      const project = S.projects.find(item => item.id === projectId);
+      const beforeStatus = project ? projectLifecycle(project).status : 'in_progress';
       if (setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
-        openDetail(projectId);
-        toast(progressCheckbox.checked ? `${employeeName(employeeId)}さんを完了にしました` : `${employeeName(employeeId)}さんを未完了に戻しました`);
+        const afterStatus = project ? projectLifecycle(project).status : beforeStatus;
+        const effect = beforeStatus !== afterStatus && afterStatus === 'production_complete'
+          ? 'celebrate-production'
+          : 'progress-updated';
+        openDetail(projectId, effect);
+        toast(beforeStatus !== afterStatus && afterStatus === 'production_complete'
+          ? '担当者全員が完了し、製作完了になりました'
+          : progressCheckbox.checked
+            ? `${employeeName(employeeId)}さんを完了にしました`
+            : `${employeeName(employeeId)}さんを未完了に戻しました`);
       }
       return;
     }
@@ -1152,7 +1166,7 @@ function bindDelegatedEvents() {
         const targetStatus = button.dataset.lifecycle;
         const messages = { production_complete: '製作完了にしますか？', delivered: '納品完了にしますか？', in_progress: '製作中に戻しますか？' };
         if (confirm(messages[targetStatus] || 'ステータスを変更しますか？') && setProjectLifecycle(projectId, targetStatus)) {
-          openDetail(projectId);
+          openDetail(projectId, targetStatus === 'delivered' ? 'celebrate-delivery' : 'status-updated');
           toast(`${lifecycleLabel(targetStatus)}に変更しました`);
         }
       }
