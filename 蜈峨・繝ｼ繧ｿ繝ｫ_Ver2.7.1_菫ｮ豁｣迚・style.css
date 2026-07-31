@@ -1,0 +1,1323 @@
+:root{
+  font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;
+  color:#172033;
+  background:#f3f5f8;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+}
+
+button{
+  font:inherit;
+  cursor:pointer;
+}
+
+/* ヘッダー */
+
+.topbar{
+  background:#0d1b3d;
+  color:#fff;
+  padding:14px 22px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.brand{
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.brand img{
+  width:46px;
+  height:46px;
+  border-radius:10px;
+}
+
+.brand h1,
+.brand p{
+  margin:0;
+}
+
+.brand p{
+  opacity:.75;
+  font-size:13px;
+}
+
+/* ナビゲーション */
+
+nav{
+  display:flex;
+  background:#fff;
+  border-bottom:1px solid #dfe4ec;
+  padding:0 18px;
+}
+
+.nav{
+  border:0;
+  background:none;
+  padding:15px 20px;
+  font-weight:700;
+  color:#637087;
+}
+
+.nav.active{
+  color:#0d1b3d;
+  border-bottom:3px solid #0d1b3d;
+}
+
+/* 共通レイアウト */
+
+main{
+  padding:20px;
+}
+
+.view{
+  display:none;
+}
+
+.view.active{
+  display:block;
+}
+
+.toolbar,
+.section-head{
+  display:flex;
+  gap:12px;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:16px;
+}
+
+.toolbar input{
+  width:min(520px,45vw);
+  padding:11px;
+  border:1px solid #cbd3df;
+  border-radius:9px;
+}
+
+.toolbar-actions{
+  display:flex;
+  gap:8px;
+}
+
+.toolbar-actions button{
+  white-space:nowrap;
+}
+
+/* ボタン */
+
+.primary{
+  background:#0d1b3d;
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:10px 15px;
+  font-weight:700;
+}
+
+.secondary{
+  background:#fff;
+  color:#0d1b3d;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+  padding:9px 14px;
+}
+
+.danger{
+  background:#b42318;
+  color:#fff;
+  border:0;
+  border-radius:8px;
+  padding:10px 15px;
+  font-weight:700;
+}
+
+button:disabled{
+  cursor:not-allowed;
+  opacity:.45;
+}
+
+/* スケジュール */
+
+.schedule-wrap{
+  overflow:auto;
+  background:#fff;
+  border-radius:12px;
+  border:1px solid #dfe4ec;
+  max-height:72vh;
+}
+
+table{
+  border-collapse:collapse;
+  width:max-content;
+  min-width:100%;
+}
+
+th,
+td{
+  border:1px solid #e3e7ee;
+  vertical-align:top;
+  min-width:190px;
+  padding:8px;
+}
+
+thead th{
+  position:sticky;
+  top:0;
+  background:#eef2f8;
+  z-index:2;
+}
+
+.date-col,
+tbody th{
+  min-width:100px;
+  position:sticky;
+  left:0;
+  background:#f8fafc;
+  z-index:1;
+}
+
+.job{
+  display:flex;
+  width:100%;
+  text-align:left;
+  flex-direction:column;
+  border:1px solid #b9c6da;
+  background:#fff;
+  border-left:5px solid #0d1b3d;
+  border-radius:8px;
+  padding:8px;
+  margin-bottom:7px;
+}
+
+.job b{
+  font-size:14px;
+}
+
+.job span{
+  font-weight:700;
+}
+
+.job small{
+  color:#5b6678;
+}
+
+.job.done{
+  opacity:.45;
+  text-decoration:line-through;
+}
+
+/* 納期一覧・選択ツールバー */
+
+.deadline-selection-toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  background:#fff;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+  padding:12px;
+  margin-bottom:12px;
+}
+
+.deadline-selection-toolbar strong{
+  margin-left:auto;
+  white-space:nowrap;
+}
+
+.deadline-selection-toolbar .danger{
+  white-space:nowrap;
+}
+
+/* 納期一覧の案件カード */
+
+.deadline{
+  background:#fff;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+  padding:13px;
+  margin:9px 0;
+  display:grid;
+  grid-template-columns:34px 42px minmax(0,1fr) auto auto;
+  gap:12px;
+  align-items:center;
+}
+
+.deadline h3,
+.deadline p{
+  margin:3px 0;
+}
+
+.deadline h3{
+  overflow-wrap:anywhere;
+}
+
+.deadline p{
+  color:#5b6678;
+  overflow-wrap:anywhere;
+}
+
+.deadline time{
+  font-weight:700;
+  color:#0d1b3d;
+}
+
+.deadline.done{
+  opacity:.5;
+}
+
+.project-select{
+  width:20px;
+  height:20px;
+  margin:0;
+  justify-self:center;
+  cursor:pointer;
+  accent-color:#0d1b3d;
+}
+
+.check{
+  width:30px;
+  height:30px;
+  padding:0;
+  border-radius:50%;
+  border:2px solid #0d1b3d;
+  background:#fff;
+  color:#0d1b3d;
+  font-weight:700;
+  justify-self:center;
+}
+
+.deadline>button{
+  white-space:nowrap;
+}
+
+.deadline>button[data-edit]{
+  background:#fff;
+  color:#0d1b3d;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+  padding:9px 13px;
+  font-weight:700;
+}
+
+.deadline>button[data-delete]{
+  background:#fff;
+  color:#b42318;
+  border:1px solid #e0a39e;
+  border-radius:8px;
+  padding:9px 13px;
+  font-weight:700;
+}
+
+.deadline>button[data-edit]:hover{
+  background:#eef2f8;
+}
+
+.deadline>button[data-delete]:hover{
+  background:#fff1f0;
+}
+
+/* マスタ管理 */
+
+.master-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
+  gap:16px;
+}
+
+.master-card{
+  background:#fff;
+  padding:16px;
+  border:1px solid #dfe4ec;
+  border-radius:12px;
+}
+
+.master-card form{
+  display:flex;
+  gap:8px;
+}
+
+.master-card input{
+  min-width:0;
+  flex:1;
+  padding:9px;
+  border:1px solid #cbd3df;
+  border-radius:7px;
+}
+
+.master-item{
+  display:flex;
+  justify-content:space-between;
+  padding:9px 0;
+  border-bottom:1px solid #eee;
+}
+
+.master-actions{
+  display:flex;
+  gap:4px;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+.master-actions button{
+  font-size:12px;
+  padding:5px 7px;
+  border:1px solid #cbd3df;
+  background:#fff;
+  border-radius:6px;
+}
+
+.master-item.inactive span{
+  opacity:.45;
+  text-decoration:line-through;
+}
+
+/* メッセージ */
+
+.muted,
+.notice{
+  color:#667085;
+}
+
+.notice{
+  background:#fff5d7;
+  padding:12px;
+  border-radius:8px;
+  margin:8px 0;
+}
+
+.error{
+  color:#b42318;
+}
+
+/* ダイアログ */
+
+dialog{
+  border:0;
+  border-radius:14px;
+  width:min(520px,92vw);
+  box-shadow:0 20px 60px #0004;
+}
+
+dialog::backdrop{
+  background:#0b122099;
+}
+
+dialog form{
+  display:grid;
+  gap:12px;
+}
+
+dialog header,
+dialog footer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+dialog header button{
+  border:0;
+  background:none;
+  font-size:26px;
+}
+
+label{
+  display:grid;
+  gap:5px;
+  font-weight:700;
+}
+
+input,
+select,
+textarea{
+  font:inherit;
+  padding:10px;
+  border:1px solid #cbd3df;
+  border-radius:8px;
+}
+
+.detail-actions{
+  margin-top:20px;
+  gap:12px;
+}
+
+.detail-actions>div{
+  display:flex;
+  gap:8px;
+}
+
+.confirm-dialog{
+  width:min(440px,92vw);
+}
+
+.confirm-dialog h2,
+.confirm-dialog p{
+  margin-top:0;
+}
+
+.delete-target{
+  padding:12px;
+  background:#f3f5f8;
+  border-radius:8px;
+  font-weight:700;
+}
+
+.confirm-dialog footer{
+  margin-top:20px;
+}
+
+dl{
+  display:grid;
+  grid-template-columns:90px 1fr;
+  gap:10px;
+}
+
+dt{
+  font-weight:700;
+  color:#667085;
+}
+
+dd{
+  margin:0;
+}
+
+/* Excel取込 */
+
+.wide-dialog{
+  width:min(1180px,96vw);
+}
+
+.wide-dialog form{
+  display:block;
+}
+
+.wide-dialog header{
+  margin-bottom:16px;
+}
+
+.wide-dialog header h2,
+.wide-dialog header p{
+  margin:0;
+}
+
+.file-drop{
+  border:2px dashed #b9c6da;
+  border-radius:12px;
+  padding:28px;
+  text-align:center;
+  background:#f8fafc;
+  cursor:pointer;
+}
+
+.file-drop input{
+  display:block;
+  margin:0 auto 12px;
+}
+
+.import-common{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+
+.import-tools{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin:14px 0;
+}
+
+.import-table-wrap{
+  overflow:auto;
+  max-height:54vh;
+  border:1px solid #dfe4ec;
+  border-radius:10px;
+}
+
+.import-table{
+  width:100%;
+  min-width:980px;
+}
+
+.import-table th{
+  min-width:auto;
+  position:sticky;
+  top:0;
+  background:#eef2f8;
+}
+
+.import-table td{
+  min-width:auto;
+  vertical-align:middle;
+}
+
+.import-table th:nth-child(1),
+.import-table td:nth-child(1){
+  width:55px;
+  min-width:55px;
+  text-align:center;
+}
+
+.import-table th:nth-child(2),
+.import-table td:nth-child(2){
+  width:280px;
+  min-width:280px;
+}
+
+.import-table th:nth-child(3){
+  width:85px;
+}
+
+.import-table th:nth-child(4){
+  width:310px;
+}
+
+.import-table th:nth-child(5){
+  width:170px;
+}
+
+.import-table th:nth-child(6){
+  width:155px;
+}
+
+.import-table input,
+.import-table select,
+.import-table textarea{
+  width:100%;
+}
+
+.import-table .import-select{
+  width:auto;
+}
+
+/* Ver2.6.2 楽一取込：担当者をプルダウン表示 */
+.import-assignee-select-wrap{
+  display:grid;
+  gap:5px;
+  width:100%;
+}
+
+.import-employee-select{
+  width:100%;
+  min-height:44px;
+  padding:8px 36px 8px 11px;
+  border:1px solid #cbd6e5;
+  border-radius:10px;
+  background:#fff;
+  color:#172033;
+  font-weight:750;
+  cursor:pointer;
+}
+
+.import-employee-select:focus{
+  outline:none;
+  border-color:#6f9ed8;
+  box-shadow:0 0 0 3px rgba(69,121,184,.16);
+}
+
+.import-assignee-select-wrap.auto-etching .import-employee-select{
+  border-color:#9eddb9;
+  background:#ecfbf3;
+  color:#145b36;
+}
+
+.import-auto-note{
+  color:#28764c;
+  font-size:12px;
+  font-weight:800;
+  line-height:1.3;
+}
+
+.wide-dialog footer{
+  margin-top:14px;
+}
+
+/* トースト通知 */
+
+#toast{
+  position:fixed;
+  right:20px;
+  bottom:20px;
+  background:#172033;
+  color:#fff;
+  padding:12px 18px;
+  border-radius:8px;
+  opacity:0;
+  transform:translateY(15px);
+  transition:.2s;
+  z-index:1000;
+}
+
+#toast.show{
+  opacity:1;
+  transform:none;
+}
+
+/* タブレット */
+
+@media(max-width:900px){
+
+  .toolbar-actions{
+    flex-wrap:wrap;
+  }
+
+  .import-common{
+    grid-template-columns:1fr 1fr;
+  }
+}
+
+/* スマートフォン */
+
+@media(max-width:700px){
+
+  main{
+    padding:10px;
+  }
+
+  .topbar{
+    padding:10px;
+  }
+
+  .brand p{
+    display:none;
+  }
+
+  nav{
+    padding:0 6px;
+    overflow-x:auto;
+  }
+
+  .nav{
+    padding:13px 14px;
+    white-space:nowrap;
+  }
+
+  .toolbar{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .toolbar input{
+    width:100%;
+  }
+
+  .toolbar-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+
+  .toolbar-actions button{
+    width:100%;
+  }
+
+  .deadline-selection-toolbar{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+
+  .deadline-selection-toolbar strong{
+    margin-left:0;
+    text-align:center;
+  }
+
+  .deadline-selection-toolbar .danger{
+    width:100%;
+  }
+
+  .deadline{
+    grid-template-columns:32px 38px minmax(0,1fr);
+    gap:8px;
+    padding:11px;
+  }
+
+  .deadline>div{
+    min-width:0;
+  }
+
+  .deadline>button[data-edit],
+  .deadline>button[data-delete]{
+    grid-column:auto;
+    width:100%;
+    margin-top:3px;
+  }
+
+  .deadline>button[data-edit]{
+    grid-column:2;
+  }
+
+  .deadline>button[data-delete]{
+    grid-column:3;
+  }
+
+  .master-item{
+    align-items:flex-start;
+    gap:8px;
+  }
+
+  .master-actions{
+    max-width:170px;
+  }
+
+  .import-common{
+    grid-template-columns:1fr;
+  }
+
+  .import-tools{
+    align-items:stretch;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  dialog footer{
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  .detail-actions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+
+  .detail-actions>div{
+    width:100%;
+  }
+
+  .detail-actions button{
+    flex:1;
+  }
+}
+
+
+/* Ver2.5.1 利用者選択 */
+.current-actor-status{
+  border:1px solid hsl(var(--employee-hue,215) 45% 72%);
+  background:hsl(var(--employee-hue,215) 70% 96%);
+  color:hsl(var(--employee-hue,215) 55% 28%);
+  border-radius:999px;
+  padding:9px 14px;
+  font-weight:800;
+  white-space:nowrap;
+}
+.current-actor-status:hover{
+  filter:brightness(.98);
+}
+.actor-settings-button{
+  white-space:nowrap;
+}
+.employee-fieldset{
+  border:1px solid #dfe4ec;
+  border-radius:12px;
+  padding:12px;
+}
+.employee-choices{
+  display:flex;
+  flex-wrap:wrap;
+  gap:9px;
+}
+.employee-choice{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:9px 12px;
+  border:1px solid hsl(var(--employee-hue,215) 45% 75%);
+  border-radius:999px;
+  background:hsl(var(--employee-hue,215) 70% 97%);
+  cursor:pointer;
+}
+.employee-choice:has(input:checked){
+  background:hsl(var(--employee-hue,215) 70% 90%);
+  box-shadow:0 0 0 2px hsl(var(--employee-hue,215) 55% 55% / .22);
+}
+.employee-choice input{
+  margin:0;
+  accent-color:hsl(var(--employee-hue,215) 60% 45%);
+}
+.actor-dialog{
+  width:min(560px,92vw);
+}
+@media (max-width:700px){
+  .topbar-actions{flex-wrap:wrap;justify-content:flex-end}
+  .current-actor-status{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+}
+
+
+/* Ver2.6.0 業務UI・材料費計算 */
+:root{--navy:#0d1b3d;--navy-2:#132b58;--line:#dbe3ef;--surface:#fff;--soft:#f4f7fb;--accent:#1769e0;--text:#152033;--muted:#667085}
+body{background:linear-gradient(180deg,#eef3f9 0,#f7f9fc 220px);color:var(--text)}
+.topbar{box-shadow:0 8px 24px rgba(13,27,61,.12)}
+nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rgba(13,27,61,.05)}
+.nav{border-radius:9px 9px 0 0;font-weight:700}.nav.active{background:var(--navy);color:#fff}
+.view{animation:viewIn .18s ease}@keyframes viewIn{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+.eyebrow,.result-kicker{display:block;color:var(--accent);font-size:11px;font-weight:900;letter-spacing:.14em}
+.calculator-head{padding:4px 0 14px}.calculator-head h2{margin:4px 0}
+.calculator-tabs{display:flex;gap:8px;padding:6px;background:#e9eef6;border-radius:14px;margin-bottom:18px;max-width:640px}.calculator-tab{flex:1;border:0;border-radius:10px;padding:12px 16px;background:transparent;font-weight:800;color:#516074}.calculator-tab.active{background:#fff;color:var(--navy);box-shadow:0 3px 12px rgba(13,27,61,.12)}
+.calculator-panel{display:none}.calculator-panel.active{display:block}
+.calculator-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;align-items:start}.compact-layout{max-width:920px}
+.calculator-card,.result-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 10px 30px rgba(13,27,61,.07)}
+.calculator-card{display:grid;gap:16px}.calculator-card label{display:grid;gap:7px;font-weight:750;color:#344054}.calculator-card input,.calculator-card select{min-height:46px;border:1px solid #cbd5e1;border-radius:10px;padding:9px 11px;background:#fff;font-size:16px}.calculator-card input:focus,.calculator-card select:focus{outline:3px solid rgba(23,105,224,.15);border-color:var(--accent)}
+.card-title{display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid #edf1f6}.card-title>div{display:flex;align-items:center;gap:10px}.card-title h3{margin:0}.step-badge{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--navy);color:#fff;font-size:12px;font-weight:900}.text-button{border:0;background:none;color:var(--accent);font-weight:800}.dimension-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.unit-input{display:grid;grid-template-columns:1fr 80px;gap:7px}.calculator-submit{min-height:50px;font-size:16px}
+.result-card{background:linear-gradient(145deg,var(--navy),var(--navy-2));color:#fff;position:sticky;top:18px}.result-card h3{margin:5px 0 20px}.result-kicker{color:#80b4ff}.main-result{padding:18px;border:1px solid rgba(255,255,255,.18);border-radius:14px;background:rgba(255,255,255,.08)}.main-result span{display:block;font-size:13px;color:#cbd8ee}.main-result strong{display:block;font-size:32px;margin-top:7px}.result-list{margin:18px 0 0}.result-list>div{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.12)}.result-list dt{color:#cbd8ee}.result-list dd{margin:0;text-align:right;font-weight:800}.formula-note{margin:16px 0 0;color:#b9c8e1;font-size:12px}.form-actions{display:flex;justify-content:flex-end;gap:10px}
+.material-master-list{display:grid;gap:10px}.material-row{display:flex;justify-content:space-between;gap:14px;align-items:center;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}.material-row>div:first-child{display:grid;gap:3px}.material-row span,.material-row small{color:var(--muted)}.material-row>div:last-child{display:flex;gap:6px;flex-wrap:wrap}.material-row button{padding:8px 10px}
+@media(max-width:850px){.calculator-layout{grid-template-columns:1fr}.result-card{position:static}.calculator-tabs{max-width:none}.main-result strong{font-size:28px}}
+@media(max-width:600px){.calculator-card,.result-card{padding:16px;border-radius:14px}.dimension-grid{grid-template-columns:1fr}.calculator-tabs{overflow:auto}.calculator-tab{white-space:nowrap}.material-row{align-items:flex-start;flex-direction:column}.material-row>div:last-child{width:100%}.material-row button{flex:1}.main-result strong{font-size:25px}}
+
+/* Ver2.6.3 共通・明細担当者：複数選択プルダウン */
+.import-common-employee-label{
+  min-width:0;
+}
+.import-common-employee-label>span{
+  display:block;
+}
+.employee-multi-dropdown{
+  position:relative;
+  width:100%;
+}
+.employee-multi-dropdown>summary{
+  min-height:44px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+  padding:8px 12px;
+  border:1px solid #cbd6e5;
+  border-radius:10px;
+  background:#fff;
+  color:#172033;
+  font-weight:750;
+  cursor:pointer;
+  list-style:none;
+}
+.employee-multi-dropdown>summary::-webkit-details-marker{display:none}
+.employee-multi-dropdown>summary::after{
+  content:'⌄';
+  flex:0 0 auto;
+  font-size:16px;
+}
+.employee-multi-dropdown[open]>summary::after{content:'⌃'}
+.employee-multi-label{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.employee-multi-count{
+  flex:0 0 auto;
+  color:#67758a;
+  font-size:12px;
+}
+.employee-multi-panel{
+  position:absolute;
+  z-index:30;
+  top:calc(100% + 6px);
+  right:0;
+  min-width:220px;
+  padding:10px;
+  display:grid;
+  gap:8px;
+  border:1px solid #cad5e5;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 14px 32px rgba(23,32,51,.18);
+}
+.employee-multi-panel .employee-choice{
+  width:100%;
+  justify-content:flex-start;
+  border-radius:9px;
+  padding:8px 10px;
+}
+.employee-multi-close{
+  width:100%;
+  margin-top:2px;
+}
+.import-assignee-select-wrap.auto-etching .employee-multi-dropdown>summary{
+  border-color:#9eddb9;
+  background:#ecfbf3;
+  color:#145b36;
+}
+.import-auto-note{display:none!important}
+@media(max-width:700px){
+  .employee-multi-panel{left:0;right:auto;min-width:min(260px,78vw)}
+}
+
+/* Ver2.7.0 Phase1: 更新ボタンの操作フィードバック */
+.refresh-control{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:3px;
+}
+
+.refresh-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  min-width:106px;
+  transition:background-color .18s,border-color .18s,transform .12s,box-shadow .18s;
+}
+
+.refresh-button:active{
+  transform:translateY(1px) scale(.98);
+}
+
+.refresh-icon{
+  display:inline-block;
+  font-size:17px;
+  line-height:1;
+}
+
+.refresh-button.is-loading{
+  background:#eef4ff;
+  border-color:#8aa9d4;
+  box-shadow:0 0 0 3px rgba(69,121,184,.13);
+}
+
+.refresh-button.is-loading .refresh-icon{
+  animation:refresh-spin .75s linear infinite;
+}
+
+.refresh-button.is-success{
+  background:#eaf8ef;
+  border-color:#71ba8b;
+  color:#145c31;
+}
+
+.refresh-button.is-success .refresh-icon{
+  transform:rotate(360deg);
+}
+
+.last-updated{
+  color:#667085;
+  font-size:11px;
+  white-space:nowrap;
+}
+
+@keyframes refresh-spin{
+  to{transform:rotate(360deg)}
+}
+
+/* Ver2.7.0 Phase1: 今日の行を見つけやすくする */
+#scheduleTable tr[data-schedule-date] > th{
+  scroll-margin-top:48px;
+}
+
+#scheduleTable tr[data-schedule-date] td,
+#scheduleTable tr[data-schedule-date] th{
+  transition:background-color .2s;
+}
+
+/* Ver2.7.0 Phase1: 職員マスタは通常折りたたみ */
+.master-card-collapsible{
+  grid-column:1 / -1;
+  padding:0;
+  overflow:hidden;
+}
+
+.master-card-collapsible summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:16px;
+  cursor:pointer;
+  font-weight:800;
+  list-style:none;
+  user-select:none;
+}
+
+.master-card-collapsible summary::-webkit-details-marker{
+  display:none;
+}
+
+.master-card-collapsible summary::after{
+  content:'＋';
+  flex:0 0 auto;
+  font-size:20px;
+  color:#53627a;
+}
+
+.master-card-collapsible[open] summary::after{
+  content:'−';
+}
+
+.master-card-collapsible summary small{
+  margin-left:auto;
+  color:#667085;
+  font-size:12px;
+  font-weight:500;
+}
+
+.master-card-collapsible[open] summary{
+  border-bottom:1px solid #e5e9f0;
+}
+
+.master-card-body{
+  padding:16px;
+}
+
+@media(max-width:700px){
+  .refresh-control{align-items:stretch;width:100%}
+  .refresh-button{width:100%}
+  .last-updated{text-align:center}
+  .master-card-collapsible summary{align-items:flex-start}
+  .master-card-collapsible summary small{display:none}
+}
+
+
+/* =========================================================
+   Ver2.7.1: マスタ管理画面のレイアウト改善
+   ========================================================= */
+
+/* 3列で窮屈にならないよう、デスクトップは最大2列に固定 */
+.master-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:20px;
+  align-items:start;
+}
+
+.master-card{
+  min-width:0;
+  padding:20px;
+  border-color:#d9e0ea;
+  box-shadow:0 4px 14px rgba(31,45,61,.05);
+}
+
+.master-card h3{
+  margin:0 0 14px;
+  font-size:17px;
+  line-height:1.4;
+  white-space:nowrap;
+}
+
+.master-card form{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.master-card form button{
+  min-width:68px;
+  white-space:nowrap;
+}
+
+.master-item{
+  display:grid;
+  grid-template-columns:minmax(120px,1fr) auto;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+  padding:12px 0;
+}
+
+.master-item>span{
+  min-width:0;
+  font-weight:700;
+  line-height:1.45;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+}
+
+.master-actions{
+  display:grid;
+  grid-template-columns:repeat(2,34px) repeat(3,max-content);
+  align-items:center;
+  gap:6px;
+  flex-wrap:nowrap;
+  max-width:none;
+}
+
+.master-actions button{
+  min-height:32px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:700;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.master-actions button[data-move]{
+  width:34px;
+  min-width:34px;
+  padding:0;
+  font-size:15px;
+}
+
+.master-actions button[data-mdelete]{
+  color:#b42318;
+  border-color:#f0c9c5;
+  background:#fffafa;
+}
+
+.master-actions button:disabled{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+.master-card-collapsible{
+  padding:0;
+}
+
+.master-card-collapsible summary{
+  padding:18px 20px;
+}
+
+.master-card-body{
+  padding:20px;
+}
+
+/* 一般的なノートPC幅では1列にして、項目名とボタンを守る */
+@media(max-width:1180px){
+  .master-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+/* スマートフォンでは操作ボタンを次の行へ */
+@media(max-width:700px){
+  .master-card{
+    padding:16px;
+  }
+
+  .master-card form{
+    grid-template-columns:1fr;
+  }
+
+  .master-card form button{
+    width:100%;
+  }
+
+  .master-item{
+    grid-template-columns:1fr;
+    gap:9px;
+  }
+
+  .master-actions{
+    grid-template-columns:repeat(2,34px) repeat(3,minmax(0,1fr));
+    width:100%;
+  }
+
+  .master-actions button:not([data-move]){
+    width:100%;
+    padding-left:5px;
+    padding-right:5px;
+  }
+
+  .master-card-collapsible summary{
+    padding:16px;
+  }
+
+  .master-card-body{
+    padding:16px;
+  }
+}
+
+/* =========================================================
+   Ver2.7.1 hotfix: マスタ管理の横幅・改行・操作ボタンを確実に修正
+   ========================================================= */
+#masterGrid.master-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(400px,1fr));
+  gap:20px;
+  width:100%;
+  align-items:start;
+}
+
+#masterGrid .master-card{
+  min-width:0;
+  width:auto;
+  padding:20px;
+  overflow:visible;
+}
+
+#masterGrid .master-card > h3{
+  margin:0 0 16px;
+  white-space:nowrap;
+}
+
+#masterGrid .master-item{
+  display:grid;
+  grid-template-columns:minmax(150px,1fr) max-content;
+  align-items:center;
+  gap:12px;
+  padding:11px 0;
+}
+
+#masterGrid .master-item > span{
+  display:block;
+  min-width:0;
+  white-space:nowrap;
+  word-break:normal;
+  overflow-wrap:normal;
+  line-height:1.4;
+}
+
+#masterGrid .master-actions{
+  display:flex;
+  flex-wrap:nowrap;
+  justify-content:flex-end;
+  align-items:center;
+  gap:5px;
+  max-width:none;
+  white-space:nowrap;
+}
+
+#masterGrid .master-actions button{
+  flex:0 0 auto;
+  min-width:auto;
+  min-height:32px;
+  padding:6px 9px;
+  white-space:nowrap;
+}
+
+#masterGrid .master-actions button[data-move]{
+  width:32px;
+  min-width:32px;
+  padding:0;
+}
+
+#masterGrid .master-card-collapsible{
+  grid-column:1 / -1;
+}
+
+@media(max-width:1450px){
+  #masterGrid.master-grid{
+    grid-template-columns:repeat(2,minmax(400px,1fr));
+  }
+}
+
+@media(max-width:920px){
+  #masterGrid.master-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+@media(max-width:620px){
+  #masterGrid .master-item{
+    grid-template-columns:1fr;
+  }
+
+  #masterGrid .master-item > span{
+    white-space:normal;
+  }
+
+  #masterGrid .master-actions{
+    display:grid;
+    grid-template-columns:32px 32px repeat(3,minmax(0,1fr));
+    width:100%;
+  }
+
+  #masterGrid .master-actions button:not([data-move]){
+    width:100%;
+    padding-left:4px;
+    padding-right:4px;
+  }
+}
