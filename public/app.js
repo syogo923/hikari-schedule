@@ -199,7 +199,8 @@ function internalScheduleHtml(date) {
 
 function stickyNoteCellHtml(date) {
   const text = safeTrim(S.stickyNotes[date]);
-  return `<button type="button" class="sticky-cell-button ${text ? 'has-note' : ''}" data-sticky-date="${esc(date)}" title="${text ? esc(text) : '付箋を入力'}">${text ? `<span>${esc(text)}</span>` : '<span class="sticky-placeholder">＋</span>'}</button>`;
+  const label = text ? `メモあり：${text}` : 'メモを入力';
+  return `<button type="button" class="date-memo-button ${text ? 'has-note' : ''}" data-sticky-date="${esc(date)}" title="${esc(label)}" aria-label="${esc(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h11A2.5 2.5 0 0 1 20 7v8a2.5 2.5 0 0 1-2.5 2.5H13l-4.2 3v-3H6.5A2.5 2.5 0 0 1 4 15V7a2.5 2.5 0 0 1 2.5-2.5Z"/><path d="M8 9h8M8 12h6"/></svg><span class="sr-only">${esc(label)}</span></button>`;
 }
 
 function renderInternalScheduleList() {
@@ -242,7 +243,7 @@ function openInternalSchedule(id = '') {
 
 function openStickyNote(date) {
   $('stickyNoteDate').value = date;
-  $('stickyNoteTitle').textContent = `${jp(date)}の付箋`;
+  $('stickyNoteTitle').textContent = `${jp(date)}のメモ`;
   $('stickyNoteText').value = S.stickyNotes[date] || '';
   $('stickyNoteDialog').showModal();
   requestAnimationFrame(() => $('stickyNoteText').focus());
@@ -914,13 +915,13 @@ function renderSchedule() {
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
   const groups = groupProjects(filtered());
-  let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '<th class="internal-col">社内スケジュール</th><th class="sticky-col">付箋</th></tr></thead><tbody>';
+  let html = '<thead><tr><th class="date-col">日付</th><th class="date-memo-col" aria-label="日付メモ"></th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '<th class="internal-col">社内スケジュール</th></tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
-    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
+    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td>` + employees.map(item => {
       const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
-    }).join('') + `<td class="internal-schedule-cell">${internalScheduleHtml(date)}</td><td class="sticky-note-cell">${stickyNoteCellHtml(date)}</td></tr>`;
+    }).join('') + `<td class="internal-schedule-cell">${internalScheduleHtml(date)}</td></tr>`;
   }
   html += '</tbody>';
   if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
@@ -1536,7 +1537,7 @@ function bindFixedEvents() {
   $('stickyNoteForm').onsubmit = event => {
     event.preventDefault(); const date=$('stickyNoteDate').value, text=safeTrim($('stickyNoteText').value);
     if (text) S.stickyNotes[date]=text; else delete S.stickyNotes[date];
-    saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'付箋を保存しました':'付箋を消しました');
+    saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'メモを保存しました':'メモを消しました');
   };
   $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
   $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
