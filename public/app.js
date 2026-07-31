@@ -48,6 +48,57 @@ function toast(message) {
   toast.timer = setTimeout(() => node.classList.remove('show'), 2400);
 }
 
+function portalConfirm({
+  title = '確認', message = '', detail = '', note = '',
+  confirmText = '実行する', cancelText = 'キャンセル',
+  tone = 'primary', icon = '✓'
+} = {}) {
+  const dialog = $('portalConfirmDialog');
+  if (!dialog) return Promise.resolve(window.confirm(message || title));
+  const titleNode = $('portalConfirmTitle');
+  const messageNode = $('portalConfirmMessage');
+  const detailNode = $('portalConfirmDetail');
+  const noteNode = $('portalConfirmNote');
+  const iconNode = $('portalConfirmIcon');
+  const okButton = $('portalConfirmOk');
+  const cancelButton = $('portalConfirmCancel');
+  titleNode.textContent = title;
+  messageNode.textContent = message;
+  detailNode.textContent = detail;
+  detailNode.hidden = !detail;
+  noteNode.textContent = note;
+  noteNode.hidden = !note;
+  iconNode.textContent = icon;
+  okButton.textContent = confirmText;
+  cancelButton.textContent = cancelText;
+  dialog.classList.toggle('is-danger', tone === 'danger');
+  dialog.classList.toggle('is-warning', tone === 'warning');
+  okButton.className = tone === 'danger' ? 'danger' : 'primary';
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      okButton.removeEventListener('click', onOk);
+      cancelButton.removeEventListener('click', onCancel);
+      dialog.removeEventListener('cancel', onNativeCancel);
+      dialog.removeEventListener('close', onClose);
+      if (dialog.open) dialog.close();
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    const onNativeCancel = event => { event.preventDefault(); finish(false); };
+    const onClose = () => finish(false);
+    okButton.addEventListener('click', onOk);
+    cancelButton.addEventListener('click', onCancel);
+    dialog.addEventListener('cancel', onNativeCancel);
+    dialog.addEventListener('close', onClose);
+    dialog.showModal();
+    requestAnimationFrame(() => okButton.focus());
+  });
+}
+
 async function api(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
@@ -299,19 +350,32 @@ async function restoreTrashEntry(trashId) {
   toast('案件を復元しました');
 }
 
-function permanentlyDeleteTrashEntry(trashId) {
+async function permanentlyDeleteTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
   if (!entry) return;
   const label = `${entry.project.shipNo || ''} ${entry.project.displayName || ''}`.trim() || 'この案件';
-  if (!confirm(`${label}を完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+  const approved = await portalConfirm({
+    title: '案件を完全に削除しますか？',
+    message: 'ごみ箱から完全に削除すると、元に戻せません。',
+    detail: label,
+    note: '必要な案件でないことを確認してから実行してください。',
+    confirmText: '完全に削除', tone: 'danger', icon: '！'
+  });
+  if (!approved) return;
   removeTrashEntry(trashId);
   renderTrash();
   toast('ごみ箱から完全に削除しました');
 }
 
-function emptyTrash() {
+async function emptyTrash() {
   if (!S.trash.length) return;
-  if (!confirm(`ごみ箱の${S.trash.length}件をすべて完全に削除しますか？\nこの操作は元に戻せません。`)) return;
+  const approved = await portalConfirm({
+    title: 'ごみ箱を空にしますか？',
+    message: `ごみ箱にある${S.trash.length}件をすべて完全に削除します。`,
+    note: 'この操作は元に戻せません。',
+    confirmText: 'すべて完全に削除', tone: 'danger', icon: '！'
+  });
+  if (!approved) return;
   S.trash = [];
   saveTrash();
   renderTrash();
@@ -1159,13 +1223,18 @@ function bindDelegatedEvents() {
       else if (button.id === 'bulkDeleteProjects') await bulkDeleteSelectedProjects();
       else if (button.id === 'confirmBulkDelete') await confirmBulkDelete();
       else if (button.dataset.trashRestore) await restoreTrashEntry(button.dataset.trashRestore);
-      else if (button.dataset.trashDelete) permanentlyDeleteTrashEntry(button.dataset.trashDelete);
-      else if (button.id === 'emptyTrash') emptyTrash();
+      else if (button.dataset.trashDelete) await permanentlyDeleteTrashEntry(button.dataset.trashDelete);
+      else if (button.id === 'emptyTrash') await emptyTrash();
       else if (button.dataset.lifecycle) {
         const projectId = button.dataset.projectId;
         const targetStatus = button.dataset.lifecycle;
-        const messages = { production_complete: '製作完了にしますか？', delivered: '納品完了にしますか？', in_progress: '製作中に戻しますか？' };
-        if (confirm(messages[targetStatus] || 'ステータスを変更しますか？') && setProjectLifecycle(projectId, targetStatus)) {
+        const project = S.projects.find(item => item.id === projectId);
+        const label = `${project?.shipNo || ''} ${project?.displayName || ''}`.trim();
+        const settings = targetStatus === 'delivered'
+          ? { title: '納品完了にしますか？', message: 'この案件を納品済みとして記録します。', detail: label, note: '納品完了はあとから取り消せます。', confirmText: '納品完了にする', tone: 'primary', icon: '✓' }
+          : { title: `${lifecycleLabel(targetStatus)}に変更しますか？`, message: '案件ステータスを変更します。', detail: label, note: '変更後も必要に応じて戻せます。', confirmText: '変更する', tone: 'warning', icon: '↶' };
+        const approved = await portalConfirm(settings);
+        if (approved && setProjectLifecycle(projectId, targetStatus)) {
           openDetail(projectId, targetStatus === 'delivered' ? 'celebrate-delivery' : 'status-updated');
           toast(`${lifecycleLabel(targetStatus)}に変更しました`);
         }
@@ -1173,12 +1242,20 @@ function bindDelegatedEvents() {
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
-      else if (button.dataset.materialDelete && confirm('この材料を削除しますか？')) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+      else if (button.dataset.materialDelete) {
+        const item = S.materials.find(x => x.id === button.dataset.materialDelete);
+        const approved = await portalConfirm({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する', tone: 'danger', icon: '！' });
+        if (approved) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+      }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
       else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
       else if (button.dataset.move) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.id, action: 'move', direction: button.dataset.move } }); await load(); }
-      else if (button.dataset.mdelete && confirm('この項目を削除しますか？')) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
+      else if (button.dataset.mdelete) {
+        const item = S.masters[button.dataset.type]?.find(x => x.id === button.dataset.mdelete);
+        const approved = await portalConfirm({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する', tone: 'danger', icon: '！' });
+        if (approved) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
+      }
     } catch (error) { toast(error.message); }
   });
 }
