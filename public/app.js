@@ -306,7 +306,9 @@ function renderCalendar() {
 
 function normalizeShipNo(value) {
   let text = safeTrim(value || '');
-  if (!text) return '';
+  // 案件番号が未入力でも、会社の共通接頭辞「S.」は維持して登録する。
+  // 「S.」だけの仮登録も可能にし、番号は後から追記できる。
+  if (!text) return 'S.';
   if (/^s\.?\s*/i.test(text)) return `S.${text.replace(/^s\.?\s*/i, '')}`;
   if (/^\d/.test(text)) return `S.${text}`;
   return text;
