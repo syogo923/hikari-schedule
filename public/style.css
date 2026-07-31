@@ -1292,3 +1292,108 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
     padding:16px;
   }
 }
+
+
+/* Ver2.8.0 Phase1: 担当者ごとの完了管理 */
+.assignee-progress{
+  margin-top:20px;
+  padding:16px;
+  border:1px solid #dce3ec;
+  border-radius:12px;
+  background:#f8fafc;
+}
+.assignee-progress-heading{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+.assignee-progress-heading h3{
+  margin:0;
+  font-size:16px;
+}
+.assignee-progress-heading strong{
+  white-space:nowrap;
+  color:#334155;
+  font-size:14px;
+}
+.assignee-progress-list{
+  display:grid;
+  gap:8px;
+}
+.assignee-progress-item{
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr) auto;
+  align-items:center;
+  gap:10px;
+  min-height:44px;
+  padding:9px 12px;
+  border:1px solid hsl(var(--employee-hue) 38% 80%);
+  border-radius:10px;
+  background:#fff;
+  cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,transform .15s ease;
+}
+.assignee-progress-item:hover{
+  border-color:hsl(var(--employee-hue) 58% 58%);
+  transform:translateY(-1px);
+}
+.assignee-progress-item input{
+  position:absolute;
+  width:1px;
+  height:1px;
+  opacity:0;
+  pointer-events:none;
+}
+.assignee-progress-check{
+  width:22px;
+  height:22px;
+  display:grid;
+  place-items:center;
+  border:2px solid #94a3b8;
+  border-radius:6px;
+  background:#fff;
+}
+.assignee-progress-item.is-complete{
+  background:hsl(var(--employee-hue) 55% 96%);
+  border-color:hsl(var(--employee-hue) 48% 67%);
+}
+.assignee-progress-item.is-complete .assignee-progress-check{
+  border-color:hsl(var(--employee-hue) 55% 45%);
+  background:hsl(var(--employee-hue) 55% 45%);
+}
+.assignee-progress-item.is-complete .assignee-progress-check::after{
+  content:'✓';
+  color:#fff;
+  font-size:15px;
+  font-weight:900;
+  line-height:1;
+}
+.assignee-progress-name{
+  min-width:0;
+  overflow-wrap:anywhere;
+  font-weight:800;
+}
+.assignee-progress-item small{
+  color:#64748b;
+  font-weight:700;
+}
+.assignee-progress-item.is-complete small{
+  color:hsl(var(--employee-hue) 55% 34%);
+}
+.assignee-progress-note{
+  margin:10px 0 0;
+  color:#64748b;
+  font-size:12px;
+}
+@media (max-width:560px){
+  .assignee-progress-heading{
+    align-items:flex-start;
+    flex-direction:column;
+    gap:4px;
+  }
+  .assignee-progress-item{
+    grid-template-columns:24px minmax(0,1fr) auto;
+  }
+}
