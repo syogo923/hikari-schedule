@@ -46,7 +46,7 @@ const S = {
   projectLifecycle: {}
 };
 
-const $ = id => document.getElementById(id);
+const $ = id => byId(id);
 const fd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 const jp = value => value ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date(`${value}T00:00:00`)) : '—';
@@ -128,6 +128,10 @@ function confirmDangerAction(options) {
     ...options
   });
 }
+
+// ===== Common DOM Helpers =====
+function byId(id){ return byId(id); }
+function qs(sel,parent=document){ return parent.querySelector(sel); }
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
