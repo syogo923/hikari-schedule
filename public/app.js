@@ -129,9 +129,7 @@ function confirmDangerAction(options) {
   });
 }
 
-// ===== Common DOM Helpers =====
-function byId(id){ return byId(id); }
-function qs(sel,parent=document){ return parent.querySelector(sel); }
+function byId(id){ return document.getElementById(id); }
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
