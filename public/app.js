@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 現場改善版 - 月次社内予定・共有進捗・1行納期一覧 */
+/* 光ポータル Ver3.1 - 現場フィードバック反映版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -177,6 +177,7 @@ function loadInternalTools() {
 function saveInternalSchedules() {
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
   renderSchedule();
+  renderCalendar();
   renderInternalScheduleList();
 }
 
@@ -203,10 +204,18 @@ function normalizeInternalSchedule(item = {}) {
 function internalSchedulesForDate(date) {
   const target = new Date(`${date}T00:00:00`);
   if (Number.isNaN(target.getTime())) return [];
-  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => Number(item.day) === target.getDate());
+  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => {
+    if (item.type === 'once') return item.date === date;
+    if (item.type === 'yearly') {
+      return Number(item.month) === target.getMonth() + 1 && Number(item.day) === target.getDate();
+    }
+    return Number(item.day) === target.getDate();
+  });
 }
 
 function internalScheduleTypeLabel(item) {
+  if (item.type === 'once') return item.date ? jp(item.date) : '日付未設定';
+  if (item.type === 'yearly') return `毎年${Number(item.month) || 1}月${Number(item.day) || 1}日`;
   return `毎月${Number(item.day) || 1}日`;
 }
 
@@ -225,19 +234,23 @@ function stickyNoteCellHtml(date) {
 function renderInternalScheduleList() {
   const host = $('internalScheduleList');
   if (!host) return;
-  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
+  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => String(a.date || '').localeCompare(String(b.date || '')) || Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
   host.innerHTML = items.length ? items.map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${esc(internalScheduleTypeLabel(item))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
 }
 
 function resetInternalScheduleForm() {
   $('internalScheduleForm')?.reset();
   $('internalScheduleId').value = '';
+  $('internalScheduleType').value = 'monthly';
   $('internalScheduleDay').value = '1';
+  $('internalScheduleDate').value = '';
   updateInternalScheduleTypeUi();
 }
 
 function updateInternalScheduleTypeUi() {
-  // 社内予定は「毎月○日」のみ。追加の切替UIはありません。
+  const type = $('internalScheduleType')?.value || 'monthly';
+  if ($('internalDayLabel')) $('internalDayLabel').hidden = type !== 'monthly';
+  if ($('internalDateLabel')) $('internalDateLabel').hidden = type !== 'once';
 }
 
 function openInternalSchedule(id = '') {
@@ -247,7 +260,9 @@ function openInternalSchedule(id = '') {
   if (item) {
     $('internalScheduleId').value = item.id;
     $('internalScheduleTitle').value = item.title || '';
+    $('internalScheduleType').value = item.type === 'once' ? 'once' : 'monthly';
     $('internalScheduleDay').value = String(item.day || 1);
+    $('internalScheduleDate').value = item.date || '';
     $('internalScheduleTime').value = item.time || '';
     $('internalScheduleNote').value = item.note || '';
     updateInternalScheduleTypeUi();
@@ -264,10 +279,20 @@ function openStickyNote(date) {
   requestAnimationFrame(() => $('stickyNoteText').focus());
 }
 
+function clientInitial(client) {
+  const text = safeTrim(client);
+  return text ? Array.from(text)[0] : '';
+}
+
 function calendarProjectBadge(group) {
   const project = group.representative;
   const status = groupLifecycleStatus(group);
-  return `<button type="button" class="calendar-project status-${esc(status)}" data-group-detail="${esc(project.id)}" title="${esc(project.shipNo)} ${esc(project.displayName || '')}"><strong>${esc(project.shipNo || '—')}</strong>${project.displayName ? `<span>${esc(project.displayName)}</span>` : ''}</button>`;
+  const initial = clientInitial(project.client);
+  return `<button type="button" class="calendar-project status-${esc(status)}" data-group-detail="${esc(project.id)}" title="${esc(project.client || '')} ${esc(project.shipNo)} ${esc(project.displayName || '')}">${initial ? `<span class="calendar-client-initial" aria-label="得意先 ${esc(project.client)}">${esc(initial)}</span>` : ''}<strong>${esc(project.shipNo || '—')}</strong>${project.displayName ? `<span class="calendar-project-name">${esc(project.displayName)}</span>` : ''}</button>`;
+}
+
+function calendarInternalScheduleBadge(item) {
+  return `<button type="button" class="calendar-internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}" title="${esc(internalScheduleTypeLabel(item))} ${esc(item.title)}"><span class="calendar-internal-mark">社</span><strong>${esc(item.time || '')}</strong><span>${esc(item.title)}</span></button>`;
 }
 
 function renderCalendar() {
@@ -299,7 +324,15 @@ function renderCalendar() {
     else if (i >= firstDay+days) { d = new Date(year, month+1, i-firstDay-days+1); other=true; }
     else d = new Date(year,month,i-firstDay+1);
     const date=fd(d), items=byDate.get(date)||[];
-    cells.push(`<div class="calendar-day ${other?'other-month':''} ${date===fd(new Date())?'today':''}"><div class="calendar-day-number">${d.getDate()}</div><div class="calendar-day-projects">${items.slice(0,5).map(calendarProjectBadge).join('')}${items.length>5?`<span class="calendar-more">ほか${items.length-5}件</span>`:''}</div></div>`);
+    const internalItems = internalSchedulesForDate(date).filter(item => {
+      if (!q) return true;
+      return [item.title, item.note, item.time, internalScheduleTypeLabel(item)].join(' ').toLowerCase().includes(q);
+    });
+    const calendarItems = [
+      ...internalItems.map(calendarInternalScheduleBadge),
+      ...items.map(calendarProjectBadge)
+    ];
+    cells.push(`<div class="calendar-day ${other?'other-month':''} ${date===fd(new Date())?'today':''}"><div class="calendar-day-number">${d.getDate()}</div><div class="calendar-day-projects">${calendarItems.slice(0,5).join('')}${calendarItems.length>5?`<span class="calendar-more">ほか${calendarItems.length-5}件</span>`:''}</div></div>`);
   }
   host.innerHTML = '<div class="calendar-weekdays">'+['日','月','火','水','木','金','土'].map(x=>`<div>${x}</div>`).join('')+'</div><div class="calendar-grid">'+cells.join('')+'</div>';
 }
@@ -1456,10 +1489,12 @@ function switchView(view) {
 function bindFixedEvents() {
   $('projectForm').onsubmit = async event => {
     event.preventDefault();
+    $('projectError').textContent = '';
+    $('employeeChoiceError').textContent = '';
     const employeeIds = checkedValues('employeeChoices');
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: safeTrim($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value, notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: safeTrim($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1580,23 +1615,28 @@ function bindFixedEvents() {
   $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
   $('manageInternalSchedule').onclick = () => openInternalSchedule();
   $('resetInternalSchedule').onclick = resetInternalScheduleForm;
+  $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
   $('internalScheduleForm').onsubmit = event => {
     event.preventDefault();
-    const type = 'monthly';
+    const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
     const item = normalizeInternalSchedule({
       id: $('internalScheduleId').value || `internal-${Date.now()}`,
       title: safeTrim($('internalScheduleTitle').value),
       type,
-      day: Number($('internalScheduleDay').value) || 1,
+      day: type === 'monthly' ? Number($('internalScheduleDay').value) || 1 : 1,
       month: 1,
-      date: '',
+      date: type === 'once' ? $('internalScheduleDate').value : '',
       time: $('internalScheduleTime').value,
       note: safeTrim($('internalScheduleNote').value)
     });
-    if (!item.title || (type === 'once' && !item.date)) return toast('予定名と日付を確認してください。');
+    if (!item.title) return toast('予定名を入力してください。');
+    if (type === 'once' && !item.date) return toast('日付を選択してください。');
     const index = S.internalSchedules.findIndex(x => x.id === item.id);
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
-    saveInternalSchedules(); resetInternalScheduleForm(); toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+    saveInternalSchedules();
+    renderCalendar();
+    resetInternalScheduleForm();
+    toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
   };
   $('stickyNoteForm').onsubmit = event => {
     event.preventDefault(); const date=$('stickyNoteDate').value, text=safeTrim($('stickyNoteText').value);
