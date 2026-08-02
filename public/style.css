@@ -2363,3 +2363,15 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
   .deadline-one-line{grid-template-columns:auto auto auto 1fr auto auto}
   .deadline-inline-meta{grid-column:2/-1}
 }
+
+/* Ver3.1 現場フィードバック反映：月間カレンダー */
+.calendar-project{gap:6px}
+.calendar-client-initial{display:inline-grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border-radius:999px;background:#0d1b3d;color:#fff;font-weight:800;font-size:12px;line-height:1}
+.calendar-project-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.calendar-internal-event{display:flex;align-items:center;gap:5px;width:100%;padding:5px 7px;border:1px solid #c4b5fd;border-radius:7px;background:#f5f3ff;color:#4c1d95;text-align:left;font-size:12px;overflow:hidden}
+.calendar-internal-event .calendar-internal-mark{display:inline-grid;place-items:center;flex:0 0 22px;width:22px;height:22px;border-radius:999px;background:#7c3aed;color:#fff;font-weight:800;font-size:11px}
+.calendar-internal-event strong{flex:0 0 auto}
+.calendar-internal-event span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#internalScheduleForm .internal-schedule-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+#internalScheduleForm [hidden]{display:none !important}
+@media(max-width:700px){#internalScheduleForm .internal-schedule-grid{grid-template-columns:1fr}}
