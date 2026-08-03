@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β6 - 同期詳細・操作性改善 */
+/* 光ポータル Ver3.2 Network Edition β7 - 検索・絞り込み強化 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -56,6 +56,9 @@ const S = {
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   calendarQ: '',
   calendarEmployeeId: '',
+  calendarStatusFilter: '',
+  deadlineEmployeeId: '',
+  deadlineStatusFilter: '',
   sharedPortalProjectId: '',
   autoSyncing: false,
   sharedWritePending: 0,
@@ -715,46 +718,119 @@ function calendarInternalScheduleBadge(item) {
   return `<button type="button" class="calendar-internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}" title="${esc(internalScheduleTypeLabel(item))} ${esc(item.title)}"><span class="calendar-internal-mark">社</span><strong>${esc(item.time || '')}</strong><span>${esc(item.title)}</span></button>`;
 }
 
+
+function groupIsOverdue(group) {
+  if (groupLifecycleStatus(group) === 'delivered') return false;
+  const today = fd(new Date());
+  return group.dueDates.some(date => date && date < today);
+}
+
+function groupMatchesStatusFilter(group, filter) {
+  if (!filter) return true;
+  if (filter === 'overdue') return groupIsOverdue(group);
+  if (filter === 'no_due') return group.dueDates.length === 0;
+  return groupLifecycleStatus(group) === filter;
+}
+
+function fillEmployeeFilter(selectId, selectedId = '') {
+  const select = $(selectId);
+  if (!select) return;
+  select.innerHTML = '<option value="">全担当者</option>' +
+    ordered('employees')
+      .filter(item => item.active !== false)
+      .map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
+      .join('');
+  select.value = selectedId;
+}
+
+
 function renderCalendar() {
   const host = $('monthlyCalendar');
   if (!host) return;
-  const year = S.calendarMonth.getFullYear(), month = S.calendarMonth.getMonth();
+
+  const year = S.calendarMonth.getFullYear();
+  const month = S.calendarMonth.getMonth();
   $('calendarMonth').textContent = `${year}年${month + 1}月`;
-  const filter = $('calendarEmployeeFilter');
-  if (filter) {
-    const current = S.calendarEmployeeId;
-    filter.innerHTML = '<option value="">全担当者</option>' + ordered('employees').filter(x => x.active !== false).map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
-    filter.value = current;
-  }
+
+  fillEmployeeFilter('calendarEmployeeFilter', S.calendarEmployeeId);
+  if ($('calendarStatusFilter')) $('calendarStatusFilter').value = S.calendarStatusFilter;
+
   const q = safeTrim(S.calendarQ).toLowerCase();
   const groups = groupProjects(S.projects).filter(group => {
-    const p = group.representative;
-    const text = [p.shipNo,p.displayName,p.productName,p.client,groupEmployeeNames(group)].join(' ').toLowerCase();
-    return (!q || text.includes(q)) && (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId));
+    const project = group.representative;
+    const text = [
+      project.shipNo,
+      project.displayName,
+      project.client,
+      groupEmployeeNames(group)
+    ].join(' ').toLowerCase();
+
+    return (!q || text.includes(q)) &&
+      (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId)) &&
+      groupMatchesStatusFilter(group, S.calendarStatusFilter);
   });
+
+  if ($('calendarResultCount')) $('calendarResultCount').textContent = `${groups.length}案件`;
+
   const byDate = new Map();
-  groups.forEach(group => group.dueDates.forEach(date => { if (!byDate.has(date)) byDate.set(date, []); byDate.get(date).push(group); }));
+  groups.forEach(group => {
+    group.dueDates.forEach(date => {
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(group);
+    });
+  });
+
   const firstDay = new Date(year, month, 1).getDay();
   const days = new Date(year, month + 1, 0).getDate();
   const prevDays = new Date(year, month, 0).getDate();
   const cells = [];
-  for (let i=0;i<42;i++) {
-    let d, other=false;
-    if (i < firstDay) { d = new Date(year, month-1, prevDays-firstDay+i+1); other=true; }
-    else if (i >= firstDay+days) { d = new Date(year, month+1, i-firstDay-days+1); other=true; }
-    else d = new Date(year,month,i-firstDay+1);
-    const date=fd(d), items=byDate.get(date)||[];
+
+  for (let i = 0; i < 42; i += 1) {
+    let dateObject;
+    let otherMonth = false;
+
+    if (i < firstDay) {
+      dateObject = new Date(year, month - 1, prevDays - firstDay + i + 1);
+      otherMonth = true;
+    } else if (i >= firstDay + days) {
+      dateObject = new Date(year, month + 1, i - firstDay - days + 1);
+      otherMonth = true;
+    } else {
+      dateObject = new Date(year, month, i - firstDay + 1);
+    }
+
+    const date = fd(dateObject);
+    const items = byDate.get(date) || [];
     const internalItems = internalSchedulesForDate(date).filter(item => {
       if (!q) return true;
-      return [item.title, item.note, item.time, internalScheduleTypeLabel(item)].join(' ').toLowerCase().includes(q);
+      return [item.title, item.note, item.time, internalScheduleTypeLabel(item)]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
     });
+
     const calendarItems = [
       ...internalItems.map(calendarInternalScheduleBadge),
       ...items.map(calendarProjectBadge)
     ];
-    cells.push(`<div class="calendar-day ${other?'other-month':''} ${date===fd(new Date())?'today':''}"><div class="calendar-day-number">${d.getDate()}</div><div class="calendar-day-projects">${calendarItems.slice(0,5).join('')}${calendarItems.length>5?`<span class="calendar-more">ほか${calendarItems.length-5}件</span>`:''}</div></div>`);
+
+    cells.push(
+      `<div class="calendar-day ${otherMonth ? 'other-month' : ''} ${date === fd(new Date()) ? 'today' : ''}">
+        <div class="calendar-day-number">${dateObject.getDate()}</div>
+        <div class="calendar-day-projects">
+          ${calendarItems.slice(0, 5).join('')}
+          ${calendarItems.length > 5 ? `<span class="calendar-more">ほか${calendarItems.length - 5}件</span>` : ''}
+        </div>
+      </div>`
+    );
   }
-  host.innerHTML = '<div class="calendar-weekdays">'+['日','月','火','水','木','金','土'].map(x=>`<div>${x}</div>`).join('')+'</div><div class="calendar-grid">'+cells.join('')+'</div>';
+
+  host.innerHTML =
+    '<div class="calendar-weekdays">' +
+    ['日', '月', '火', '水', '木', '金', '土'].map(day => `<div>${day}</div>`).join('') +
+    '</div><div class="calendar-grid">' +
+    cells.join('') +
+    '</div>';
 }
 
 function normalizeShipNo(value) {
@@ -1483,27 +1559,73 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
   wrap.scrollTo({ top: target, behavior });
 }
 
+
 function renderDeadlines() {
   const statusOrder = { in_progress: 0, production_complete: 1, delivered: 2 };
-  const groups = groupProjects(filtered()).sort((a, b) => statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] || String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || '')));
-  const selectedGroups = groups.filter(group => group.projects.every(project => S.selectedProjectIds.has(project.id)));
+
+  fillEmployeeFilter('deadlineEmployeeFilter', S.deadlineEmployeeId);
+  if ($('deadlineStatusFilter')) $('deadlineStatusFilter').value = S.deadlineStatusFilter;
+
+  const groups = groupProjects(filtered())
+    .filter(group =>
+      (!S.deadlineEmployeeId || group.employeeIds.includes(S.deadlineEmployeeId)) &&
+      groupMatchesStatusFilter(group, S.deadlineStatusFilter)
+    )
+    .sort((a, b) =>
+      statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] ||
+      String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || ''))
+    );
+
+  if ($('deadlineResultCount')) $('deadlineResultCount').textContent = `${groups.length}案件`;
+
+  const selectedGroups = groups.filter(group =>
+    group.projects.every(project => S.selectedProjectIds.has(project.id))
+  );
   const count = selectedGroups.length;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}案件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}案件をごみ箱へ</button></div>`;
-  const items = groups.length ? groups.map(group => {
-    const project = group.representative;
-    const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
-    const more = group.projects.length > 2 ? `ほか${group.projects.length - 2}件` : '';
-    const summary = group.projects.reduce((acc, item) => { const x=assigneeProgressSummary(item); acc.completed+=x.completed; acc.total+=x.total; return acc; }, {completed:0,total:0});
-    return `<article class="deadline grouped-deadline deadline-one-line lifecycle-${esc(groupLifecycleStatus(group))}">
-      <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <time>${esc(groupDueLabel(group))}</time>
-      ${groupLifecycleBadgeHtml(group, true)}
-      <button type="button" data-group-detail="${esc(project.id)}" class="deadline-main-link"><strong>${esc(project.shipNo || '—')}</strong><span>${esc(project.displayName || '—')}</span></button>
-      <span class="deadline-inline-meta">${group.projects.length}明細${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}</span>
-      <button type="button" class="secondary" data-group-detail="${esc(project.id)}">詳細</button>
-      <button type="button" class="danger ghost-danger" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
-    </article>`;
-  }).join('') : '<div class="notice">案件はありません。</div>';
+
+  const toolbar = `<div class="deadline-selection-toolbar">
+    <button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button>
+    <button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button>
+    <strong id="selectedProjectCount">${count}案件選択中</strong>
+    <button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>
+      選択した${count}案件をごみ箱へ
+    </button>
+  </div>`;
+
+  const items = groups.length
+    ? groups.map(group => {
+        const project = group.representative;
+        const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
+        const more = group.projects.length > 2 ? `ほか${group.projects.length - 2}件` : '';
+        const summary = group.projects.reduce(
+          (acc, item) => {
+            const progress = assigneeProgressSummary(item);
+            acc.completed += progress.completed;
+            acc.total += progress.total;
+            return acc;
+          },
+          { completed: 0, total: 0 }
+        );
+        const overdue = groupIsOverdue(group);
+
+        return `<article class="deadline grouped-deadline deadline-one-line lifecycle-${esc(groupLifecycleStatus(group))} ${overdue ? 'is-overdue' : ''}">
+          <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
+          <time>${esc(groupDueLabel(group))}</time>
+          ${overdue ? '<span class="overdue-badge">納期超過</span>' : groupLifecycleBadgeHtml(group, true)}
+          <button type="button" data-group-detail="${esc(project.id)}" class="deadline-main-link">
+            <strong>${esc(project.shipNo || '—')}</strong>
+            <span>${esc(project.displayName || '—')}</span>
+          </button>
+          <span class="deadline-inline-meta">
+            ${group.projects.length}明細${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}
+            ${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}
+          </span>
+          <button type="button" class="secondary" data-group-detail="${esc(project.id)}">詳細</button>
+          <button type="button" class="danger ghost-danger" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
+        </article>`;
+      }).join('')
+    : '<div class="notice">条件に一致する案件はありません。</div>';
+
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
 }
 
@@ -2368,7 +2490,27 @@ function bindFixedEvents() {
   $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
   $('calendarNext').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()+1,1); renderCalendar(); };
   $('calendarSearch').oninput = event => { S.calendarQ=event.target.value; renderCalendar(); };
-  $('calendarEmployeeFilter').onchange = event => { S.calendarEmployeeId=event.target.value; renderCalendar(); };
+  $('calendarEmployeeFilter').onchange = event => {
+    S.calendarEmployeeId = event.target.value;
+    renderCalendar();
+  };
+  $('calendarStatusFilter').onchange = event => {
+    S.calendarStatusFilter = event.target.value;
+    renderCalendar();
+  };
+  $('deadlineEmployeeFilter').onchange = event => {
+    S.deadlineEmployeeId = event.target.value;
+    renderDeadlines();
+  };
+  $('deadlineStatusFilter').onchange = event => {
+    S.deadlineStatusFilter = event.target.value;
+    renderDeadlines();
+  };
+  $('clearDeadlineFilters').onclick = () => {
+    S.deadlineEmployeeId = '';
+    S.deadlineStatusFilter = '';
+    renderDeadlines();
+  };
 
   if ($('exportLocalPortalData')) $('exportLocalPortalData').onclick = exportLocalPortalData;
   if ($('mergePortalBackups')) {
