@@ -2684,9 +2684,3 @@ textarea:focus-visible,
   background: #f4f3ff;
   color: #53389e;
 }
-
-
-/* RC5.1 ステータス読込修正版 */
-.sync-status.is-ready {
-  cursor: pointer;
-}
