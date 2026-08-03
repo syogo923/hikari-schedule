@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network β5</title>
+  <title>光ポータル Ver3.2 Network β6</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-network-beta5">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-beta6">
 </head>
 
 <body>
@@ -94,10 +94,10 @@
           <span id="refreshLabel">更新</span>
         </button>
         <small id="lastUpdated" class="last-updated">最終更新：—</small>
-        <span id="syncStatus" class="sync-status is-ready" role="status" aria-live="polite">
+        <button id="syncStatus" type="button" class="sync-status is-ready" aria-live="polite" title="同期状態の詳細を開く">
           <i aria-hidden="true"></i>
           <span id="syncStatusText">同期済み</span>
-        </span>
+        </button>
       </div>
     </div>
 
@@ -1007,6 +1007,43 @@
     </form>
   </dialog>
 
+  <!-- 同期状態詳細 -->
+  <dialog id="syncDetailDialog" class="sync-detail-dialog">
+    <div class="sync-detail-panel">
+      <header>
+        <div>
+          <p class="dialog-eyebrow">NETWORK STATUS</p>
+          <h2>同期状態</h2>
+        </div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+
+      <div class="sync-detail-current">
+        <span id="syncDetailDot" class="sync-detail-dot is-ready" aria-hidden="true"></span>
+        <div>
+          <strong id="syncDetailState">同期済み</strong>
+          <p id="syncDetailMessage">すべてのPCで共有できる状態です。</p>
+        </div>
+      </div>
+
+      <dl class="sync-detail-grid">
+        <div><dt>通信状態</dt><dd id="syncDetailOnline">オンライン</dd></div>
+        <div><dt>最終同期</dt><dd id="syncDetailLastSync">—</dd></div>
+        <div><dt>社内予定</dt><dd id="syncDetailSchedules">0件</dd></div>
+        <div><dt>日付メモ</dt><dd id="syncDetailNotes">0件</dd></div>
+        <div><dt>担当者進捗</dt><dd id="syncDetailProgress">0案件</dd></div>
+        <div><dt>案件ステータス</dt><dd id="syncDetailLifecycle">0案件</dd></div>
+      </dl>
+
+      <p class="sync-detail-note">入力中は自動同期せず、作業内容を守るため更新通知に切り替わります。</p>
+
+      <footer>
+        <button type="button" id="openSharedDataManagement" class="secondary">共有データ管理</button>
+        <button type="button" id="syncNow" class="primary">今すぐ同期</button>
+      </footer>
+    </div>
+  </dialog>
+
   <!-- 共通確認ダイアログ -->
   <dialog
     id="portalConfirmDialog"
@@ -1038,7 +1075,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-beta5"
+    src="/app.js?v=3.2-network-beta6"
     defer
   ></script>
 
