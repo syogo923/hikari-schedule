@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2.1 Network Edition - 材料マスタ共有版 */
+/* 光ポータル Ver3.2.2 Network Edition - 二重登録防止修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -225,6 +225,62 @@ async function api(url, options = {}) {
   throw lastError || new Error('通信に失敗しました。');
 }
 // ===== Common Utility Helpers =====
+const activeFormSubmissions = new WeakSet();
+const recentSubmissionSignatures = new Map();
+
+function formSubmitButton(form) {
+  return form?.querySelector('button[type="submit"], input[type="submit"]') || null;
+}
+
+function beginFormSubmission(form, savingText = '保存中…') {
+  if (!form || activeFormSubmissions.has(form)) return null;
+
+  activeFormSubmissions.add(form);
+  const button = formSubmitButton(form);
+  const state = {
+    button,
+    disabled: button?.disabled ?? false,
+    text: button
+      ? (button.tagName === 'INPUT' ? button.value : button.textContent)
+      : ''
+  };
+
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    if (button.tagName === 'INPUT') button.value = savingText;
+    else button.textContent = savingText;
+  }
+
+  return state;
+}
+
+function endFormSubmission(form, state) {
+  if (state?.button) {
+    state.button.disabled = state.disabled;
+    state.button.removeAttribute('aria-busy');
+    if (state.button.tagName === 'INPUT') state.button.value = state.text;
+    else state.button.textContent = state.text;
+  }
+  if (form) activeFormSubmissions.delete(form);
+}
+
+function isRecentDuplicateSubmission(key, windowMs = 3000) {
+  const now = Date.now();
+  const previous = recentSubmissionSignatures.get(key) || 0;
+
+  for (const [storedKey, timestamp] of recentSubmissionSignatures.entries()) {
+    if (now - timestamp > Math.max(windowMs, 10000)) {
+      recentSubmissionSignatures.delete(storedKey);
+    }
+  }
+
+  if (previous && now - previous < windowMs) return true;
+  recentSubmissionSignatures.set(key, now);
+  return false;
+}
+
+
 function debounce(fn, wait = SEARCH_DEBOUNCE_MS) {
   let timer = null;
   return (...args) => {
@@ -2930,36 +2986,97 @@ function bindFixedEvents() {
   };
   $('internalScheduleForm').onsubmit = async event => {
     event.preventDefault();
-    const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
-    const dates = type === 'once' ? getInternalScheduleDates() : [];
-    const item = normalizeInternalSchedule({
-      id: $('internalScheduleId').value || `internal-${Date.now()}`,
-      title: safeTrim($('internalScheduleTitle').value),
-      type,
-      day: type === 'monthly' ? Number($('internalScheduleDay').value) || 1 : 1,
-      month: 1,
-      date: dates[0] || '',
-      dates,
-      time: $('internalScheduleTime').value,
-      note: safeTrim($('internalScheduleNote').value)
-    });
-    if (!item.title) return toast('予定名を入力してください。');
-    if (type === 'once' && !item.dates.length) return toast('日付を1つ以上追加してください。');
-    const index = S.internalSchedules.findIndex(x => x.id === item.id);
-    const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
-    if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
+
+    const form = event.currentTarget;
+    const submitState = beginFormSubmission(form, '保存中…');
+    if (!submitState) {
+      toast('保存処理中です。しばらくお待ちください。');
+      return;
+    }
+
     try {
-      await saveInternalSchedules(item);
-      renderCalendar();
-      resetInternalScheduleForm();
-      toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
-    } catch (error) {
-      S.internalSchedules = previousSchedules;
-      localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
-      renderSchedule();
-      renderCalendar();
-      renderInternalScheduleList();
-      toast(error.message);
+      const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
+      const dates = type === 'once' ? getInternalScheduleDates() : [];
+      const editingId = $('internalScheduleId').value;
+      const item = normalizeInternalSchedule({
+        id: editingId || `internal-${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+        title: safeTrim($('internalScheduleTitle').value),
+        type,
+        day: type === 'monthly' ? Number($('internalScheduleDay').value) || 1 : 1,
+        month: 1,
+        date: dates[0] || '',
+        dates,
+        time: $('internalScheduleTime').value,
+        note: safeTrim($('internalScheduleNote').value)
+      });
+
+      if (!item.title) {
+        toast('予定名を入力してください。');
+        return;
+      }
+      if (type === 'once' && !item.dates.length) {
+        toast('日付を1つ以上追加してください。');
+        return;
+      }
+
+      const duplicateKey = JSON.stringify({
+        action: editingId ? 'edit' : 'create',
+        title: item.title,
+        type: item.type,
+        day: item.day,
+        dates: item.dates,
+        time: item.time,
+        note: item.note
+      });
+
+      if (!editingId && isRecentDuplicateSubmission(duplicateKey, 3000)) {
+        toast('同じ内容の予定を保存中、または保存済みです。');
+        return;
+      }
+
+      // 画面内にも完全一致する新規予定がある場合は二重登録しない。
+      const sameScheduleExists = !editingId && S.internalSchedules.some(existing => {
+        const normalized = normalizeInternalSchedule(existing);
+        return normalized.title === item.title &&
+          normalized.type === item.type &&
+          normalized.day === item.day &&
+          JSON.stringify(normalized.dates || []) === JSON.stringify(item.dates || []) &&
+          normalized.time === item.time &&
+          normalized.note === item.note;
+      });
+
+      if (sameScheduleExists) {
+        toast('同じ内容の社内予定がすでに登録されています。');
+        return;
+      }
+
+      const index = S.internalSchedules.findIndex(x => x.id === item.id);
+      const previousSchedules = S.internalSchedules.map(schedule => ({
+        ...schedule,
+        dates: [...(schedule.dates || [])]
+      }));
+
+      if (index >= 0) S.internalSchedules[index] = item;
+      else S.internalSchedules.push(item);
+
+      try {
+        await saveInternalSchedules(item);
+        renderCalendar();
+        resetInternalScheduleForm();
+        toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+      } catch (error) {
+        S.internalSchedules = previousSchedules;
+        localStorage.setItem(
+          STORAGE_INTERNAL_SCHEDULES,
+          JSON.stringify(S.internalSchedules)
+        );
+        renderSchedule();
+        renderCalendar();
+        renderInternalScheduleList();
+        toast(error.message);
+      }
+    } finally {
+      endFormSubmission(form, submitState);
     }
   };
   $('stickyNoteForm').onsubmit = async event => {
