@@ -1,4 +1,4 @@
-/* 光ポータル projects API Ver2 - 共有データ・任意入力対応 */
+/* 光ポータル projects API Ver2.1 - 材料マスタ共有対応 */
 import { getStore } from '@netlify/blobs';
 
 const STORE = 'hikari-portal';
@@ -11,17 +11,20 @@ const SHARED_NOTES_LIMIT = 500000;
 
 const SHARED_PROJECT_MARKERS = new Set([
   'SYS.PORTAL',
-  'SYS.PORTAL.STATUS'
+  'SYS.PORTAL.STATUS',
+  'SYS.PORTAL.MATERIAL'
 ]);
 
 const SHARED_CLIENT_MARKERS = new Set([
   '__HIKARI_PORTAL_SHARED_STATE__',
-  '__HIKARI_PORTAL_STATUS_STATE__'
+  '__HIKARI_PORTAL_STATUS_STATE__',
+  '__HIKARI_PORTAL_MATERIAL_STATE__'
 ]);
 
 const SHARED_SPEC_MARKERS = new Set([
   'HIKARI_PORTAL_SHARED_STATE_V1',
-  'HIKARI_PORTAL_STATUS_STATE_V1'
+  'HIKARI_PORTAL_STATUS_STATE_V1',
+  'HIKARI_PORTAL_MATERIAL_STATE_V1'
 ]);
 
 const reply = (data, status = 200) =>
