@@ -2393,3 +2393,12 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
 .portal-import-label{display:grid;gap:6px;min-width:280px;font-weight:700}
 .portal-import-label input{width:100%;padding:9px;border:1px solid #ccd6e3;border-radius:8px;background:#f8fafc}
 .portal-data-note{margin:14px 0 0;color:#526072;font-size:13px}
+
+
+/* Ver3.2 Network β4: 自動同期 */
+.refresh-button.is-auto-syncing {
+  opacity: .78;
+}
+.update-notice-text span {
+  line-height: 1.45;
+}
