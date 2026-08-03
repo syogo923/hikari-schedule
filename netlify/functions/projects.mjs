@@ -1,3 +1,4 @@
+/* 光ポータル projects API Ver2 - 共有データ・任意入力対応 */
 import { getStore } from '@netlify/blobs';
 
 const STORE = 'hikari-portal';
@@ -5,6 +6,23 @@ const PROJECTS_KEY = 'projects-v2';
 const HISTORY_KEY = 'projects-history-v1';
 const STATE_KEY = 'projects-state-v1';
 const HISTORY_LIMIT = 500;
+const NORMAL_NOTES_LIMIT = 10000;
+const SHARED_NOTES_LIMIT = 500000;
+
+const SHARED_PROJECT_MARKERS = new Set([
+  'SYS.PORTAL',
+  'SYS.PORTAL.STATUS'
+]);
+
+const SHARED_CLIENT_MARKERS = new Set([
+  '__HIKARI_PORTAL_SHARED_STATE__',
+  '__HIKARI_PORTAL_STATUS_STATE__'
+]);
+
+const SHARED_SPEC_MARKERS = new Set([
+  'HIKARI_PORTAL_SHARED_STATE_V1',
+  'HIKARI_PORTAL_STATUS_STATE_V1'
+]);
 
 const reply = (data, status = 200) =>
   new Response(JSON.stringify(data), {
@@ -20,6 +38,75 @@ const clean = (value, maxLength = 120) =>
     .trim()
     .replace(/\s+/g, ' ')
     .slice(0, maxLength);
+
+const cleanLongText = (value, maxLength = NORMAL_NOTES_LIMIT) =>
+  String(value ?? '')
+    .trim()
+    .slice(0, maxLength);
+
+const hasOwn = (object, key) =>
+  Object.prototype.hasOwnProperty.call(object || {}, key);
+
+function isSharedProject(project = {}) {
+  return (
+    SHARED_PROJECT_MARKERS.has(clean(project.shipNo, 60)) ||
+    SHARED_CLIENT_MARKERS.has(clean(project.client, 100)) ||
+    SHARED_SPEC_MARKERS.has(clean(project.spec, 300))
+  );
+}
+
+function normalizeBooleanMap(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, 5000)
+      .map(([key, completed]) => [clean(key, 150), completed === true])
+      .filter(([key]) => Boolean(key))
+  );
+}
+
+function normalizeLifecycle(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const allowedStatuses = new Set([
+    'in_progress',
+    'production_complete',
+    'delivered'
+  ]);
+
+  const status = clean(value.status, 40);
+
+  return {
+    status: allowedStatuses.has(status) ? status : 'in_progress',
+    productionCompletedAt: clean(value.productionCompletedAt, 40),
+    productionCompletedBy: clean(value.productionCompletedBy, 80),
+    deliveredAt: clean(value.deliveredAt, 40),
+    deliveredBy: clean(value.deliveredBy, 80)
+  };
+}
+
+function normalizePortalState(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const normalized = {};
+
+  if (hasOwn(value, 'assigneeProgress')) {
+    normalized.assigneeProgress = normalizeBooleanMap(value.assigneeProgress);
+  }
+
+  if (hasOwn(value, 'lifecycle')) {
+    normalized.lifecycle = normalizeLifecycle(value.lifecycle);
+  }
+
+  return normalized;
+}
 
 const createId = () =>
   `${Date.now().toString(36)}_${crypto.randomUUID().replaceAll('-', '')}`;
@@ -60,8 +147,9 @@ function normalizeEmployeeIds(project = {}) {
  */
 function normalizeProject(project = {}) {
   const employeeIds = normalizeEmployeeIds(project);
+  const shared = isSharedProject(project);
 
-  return {
+  const normalized = {
     ...project,
     shipNo: clean(project.shipNo, 60),
     displayName: clean(project.displayName, 80),
@@ -70,49 +158,75 @@ function normalizeProject(project = {}) {
     employeeIds,
     employeeId: employeeIds[0] || '',
     dueDate: clean(project.dueDate, 10),
-    notes: clean(project.notes, 500),
+    notes: cleanLongText(
+      project.notes,
+      shared ? SHARED_NOTES_LIMIT : NORMAL_NOTES_LIMIT
+    ),
     quantity: Math.max(0, Number(project.quantity) || 0),
     spec: clean(project.spec, 300),
     completed: Boolean(project.completed)
   };
+
+  if (hasOwn(project, 'assigneeProgress')) {
+    normalized.assigneeProgress = normalizeBooleanMap(
+      project.assigneeProgress
+    );
+  }
+
+  if (hasOwn(project, 'lifecycle')) {
+    normalized.lifecycle = normalizeLifecycle(project.lifecycle);
+  }
+
+  if (hasOwn(project, 'portalState')) {
+    normalized.portalState = normalizePortalState(project.portalState);
+  }
+
+  return normalized;
 }
 
 function validateProject(input = {}) {
   const employeeIds = normalizeEmployeeIds(input);
+  const shared = isSharedProject(input);
 
   const value = {
     shipNo: clean(input.shipNo, 60),
     displayName: clean(input.displayName, 80),
     productName: clean(input.productName, 120),
     client: clean(input.client, 100),
-
-    // Ver2.5の正式な複数担当者データ
     employeeIds,
-
-    // Ver2.4以前との一時的な互換用
     employeeId: employeeIds[0] || '',
-
     dueDate: clean(input.dueDate, 10),
-    notes: clean(input.notes, 500),
+    notes: cleanLongText(
+      input.notes,
+      shared ? SHARED_NOTES_LIMIT : NORMAL_NOTES_LIMIT
+    ),
     quantity: Math.max(0, Number(input.quantity) || 0),
     spec: clean(input.spec, 300),
     completed: Boolean(input.completed)
   };
 
-  if (!value.displayName) {
-    return { error: '表示名を入力してください。' };
+  // 案件入力は空欄登録を許可します。
+  // 納期は入力された場合だけ形式を確認します。
+  if (
+    value.dueDate &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(value.dueDate)
+  ) {
+    return { error: '納期の日付形式が正しくありません。' };
   }
 
-  if (!value.productName) {
-    return { error: '製品名を入力してください。' };
+  // 共有進捗・ステータスの追加項目を保持します。
+  if (hasOwn(input, 'assigneeProgress')) {
+    value.assigneeProgress = normalizeBooleanMap(
+      input.assigneeProgress
+    );
   }
 
-  if (!value.employeeIds.length) {
-    return { error: '担当者を1人以上選択してください。' };
+  if (hasOwn(input, 'lifecycle')) {
+    value.lifecycle = normalizeLifecycle(input.lifecycle);
   }
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.dueDate)) {
-    return { error: '納期を入力してください。' };
+  if (hasOwn(input, 'portalState')) {
+    value.portalState = normalizePortalState(input.portalState);
   }
 
   return value;
@@ -248,7 +362,10 @@ function historyProjectSnapshot(project) {
     notes: normalized.notes,
     quantity: normalized.quantity,
     spec: normalized.spec,
-    completed: normalized.completed
+    completed: normalized.completed,
+    assigneeProgress: normalized.assigneeProgress || {},
+    lifecycle: normalized.lifecycle || {},
+    portalState: normalized.portalState || {}
   };
 }
 
@@ -262,15 +379,20 @@ const CHANGE_FIELDS = [
   ['notes', 'メモ'],
   ['quantity', '数量'],
   ['spec', '仕様・備考'],
-  ['completed', '完了状態']
+  ['completed', '完了状態'],
+  ['assigneeProgress', '担当者進捗'],
+  ['lifecycle', '案件ステータス'],
+  ['portalState', '共有進捗・ステータス']
 ];
 
 function valuesEqual(before, after) {
-  if (Array.isArray(before) || Array.isArray(after)) {
-    return (
-      JSON.stringify(Array.isArray(before) ? before : []) ===
-      JSON.stringify(Array.isArray(after) ? after : [])
-    );
+  if (
+    Array.isArray(before) ||
+    Array.isArray(after) ||
+    (before && typeof before === 'object') ||
+    (after && typeof after === 'object')
+  ) {
+    return JSON.stringify(before ?? null) === JSON.stringify(after ?? null);
   }
 
   return before === after;
@@ -614,13 +736,26 @@ export default async request => {
           return reply(validated, 400);
         }
 
-        projects[index] = {
+        const updated = {
           ...before,
           ...validated,
           id: before.id,
           createdAt: before.createdAt,
           updatedAt: nowIso()
         };
+
+        // 部分的な更新で、送信されなかった共有項目を消さない。
+        if (!hasOwn(input, 'assigneeProgress')) {
+          updated.assigneeProgress = before.assigneeProgress || {};
+        }
+        if (!hasOwn(input, 'lifecycle')) {
+          updated.lifecycle = before.lifecycle || {};
+        }
+        if (!hasOwn(input, 'portalState')) {
+          updated.portalState = before.portalState || {};
+        }
+
+        projects[index] = updated;
       }
 
       const after = normalizeProject(projects[index]);
@@ -755,7 +890,10 @@ export default async request => {
 
     return reply(
       {
-        error: '案件データを処理できませんでした。'
+        error:
+          error instanceof Error && error.message
+            ? error.message
+            : '案件データを処理できませんでした。'
       },
       500
     );
