@@ -2546,3 +2546,50 @@ button.sync-status:hover {
   .sync-detail-panel > footer { flex-direction: column-reverse; }
   .sync-detail-panel > footer button { width: 100%; }
 }
+
+
+/* Ver3.2 Network β7: 検索・絞り込み強化 */
+.deadline-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.deadline-filter-bar select,
+.calendar-controls select {
+  min-height: 38px;
+}
+.filter-result-count {
+  margin-left: auto;
+  color: #334155;
+  white-space: nowrap;
+}
+.overdue-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fee4e2;
+  color: #b42318;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.deadline.is-overdue {
+  border-left-color: #d92d20;
+  background: #fffafa;
+}
+@media (max-width: 720px) {
+  .deadline-filter-bar > * {
+    flex: 1 1 160px;
+  }
+  .filter-result-count {
+    margin-left: 0;
+  }
+}
