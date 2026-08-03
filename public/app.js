@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition RC5 - 最終RC・案件直接ステータス共有 */
+/* 光ポータル Ver3.2 Network Edition RC5 - ステータス読込修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -1119,21 +1119,39 @@ function saveProjectLifecycle() {
   localStorage.setItem(STORAGE_PROJECT_LIFECYCLE, JSON.stringify(S.projectLifecycle));
 }
 
+
 function projectLifecycle(project) {
-  const remote = project.portalState?.lifecycle || project.lifecycle;
-  const local = S.projectLifecycle[project.id];
-  const saved = local && typeof local === 'object' ? local : remote;
-  const status = saved?.status === 'delivered'
-    ? 'delivered'
-    : saved?.status === 'production_complete'
-      ? 'production_complete'
-      : 'in_progress';
+  const remote =
+    project?.portalState?.lifecycle &&
+    typeof project.portalState.lifecycle === 'object'
+      ? project.portalState.lifecycle
+      : project?.lifecycle &&
+          typeof project.lifecycle === 'object'
+        ? project.lifecycle
+        : null;
+
+  const local =
+    S.projectLifecycle[project.id] &&
+    typeof S.projectLifecycle[project.id] === 'object'
+      ? S.projectLifecycle[project.id]
+      : null;
+
+  // サーバーから取得した状態を最優先する。
+  // ローカル状態は保存直後など、案件本体にまだ値がない場合だけ使用する。
+  const saved = remote || local || {};
+  const status =
+    saved.status === 'delivered'
+      ? 'delivered'
+      : saved.status === 'production_complete'
+        ? 'production_complete'
+        : 'in_progress';
+
   return {
     status,
-    productionCompletedAt: saved?.productionCompletedAt || '',
-    productionCompletedBy: saved?.productionCompletedBy || '',
-    deliveredAt: saved?.deliveredAt || '',
-    deliveredBy: saved?.deliveredBy || ''
+    productionCompletedAt: saved.productionCompletedAt || '',
+    productionCompletedBy: saved.productionCompletedBy || '',
+    deliveredAt: saved.deliveredAt || '',
+    deliveredBy: saved.deliveredBy || ''
   };
 }
 
@@ -1579,12 +1597,32 @@ async function emptyTrash() {
   toast('ごみ箱を空にしました');
 }
 
+
 function projectAssigneeProgress(project) {
-  const remote = project.portalState?.assigneeProgress || project.assigneeProgress;
-  const local = S.assigneeProgress[project.id];
-  const saved = local && typeof local === 'object' ? local : remote;
-  const current = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-  return Object.fromEntries(projectEmployeeIds(project).map(id => [id, current[id] === true]));
+  const remote =
+    project?.portalState?.assigneeProgress &&
+    typeof project.portalState.assigneeProgress === 'object' &&
+    !Array.isArray(project.portalState.assigneeProgress)
+      ? project.portalState.assigneeProgress
+      : project?.assigneeProgress &&
+          typeof project.assigneeProgress === 'object' &&
+          !Array.isArray(project.assigneeProgress)
+        ? project.assigneeProgress
+        : null;
+
+  const local =
+    S.assigneeProgress[project.id] &&
+    typeof S.assigneeProgress[project.id] === 'object' &&
+    !Array.isArray(S.assigneeProgress[project.id])
+      ? S.assigneeProgress[project.id]
+      : null;
+
+  // サーバー値を最優先し、古いブラウザ保存値による巻き戻りを防ぐ。
+  const current = remote || local || {};
+
+  return Object.fromEntries(
+    projectEmployeeIds(project).map(id => [id, current[id] === true])
+  );
 }
 
 function assigneeProgressSummary(project) {
@@ -2144,8 +2182,27 @@ async function load({ silent = false } = {}) {
       }
     });
 
+    // 同期時はサーバーの最新状態でローカル保存を完全に置き換える。
     S.assigneeProgress = nextProgress;
     S.projectLifecycle = nextLifecycle;
+
+    // 描画関数が必ず同じ最新値を参照できるよう、案件本体にも反映する。
+    S.projects = S.projects.map(project => {
+      const progress = nextProgress[project.id];
+      const lifecycle = nextLifecycle[project.id];
+
+      return {
+        ...project,
+        ...(progress ? { assigneeProgress: { ...progress } } : {}),
+        ...(lifecycle ? { lifecycle: { ...lifecycle } } : {}),
+        portalState: {
+          ...(project.portalState || {}),
+          ...(progress ? { assigneeProgress: { ...progress } } : {}),
+          ...(lifecycle ? { lifecycle: { ...lifecycle } } : {})
+        }
+      };
+    });
+
     saveAssigneeProgress();
     saveProjectLifecycle();
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
