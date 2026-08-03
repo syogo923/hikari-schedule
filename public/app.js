@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β4 - 自動同期 */
+/* 光ポータル Ver3.2 Network Edition β5 - 競合防止・同期状態表示 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -31,7 +31,7 @@ const STORAGE_STICKY_NOTES = 'hikariPortal.stickyNotes.v1';
 const SHARED_PORTAL_SHIP_NO = 'SYS.PORTAL';
 const SHARED_PORTAL_CLIENT = '__HIKARI_PORTAL_SHARED_STATE__';
 const SHARED_PORTAL_SPEC = 'HIKARI_PORTAL_SHARED_STATE_V1';
-const POLL_INTERVAL = 30000;
+const POLL_INTERVAL = 10000;
 
 const S = {
   projects: [],
@@ -303,15 +303,25 @@ async function fetchLatestSharedPortalProject() {
 }
 
 
+
 function queueSharedPortalWrite(task) {
   const run = sharedPortalWriteQueue
     .catch(() => undefined)
     .then(async () => {
       S.sharedWritePending += 1;
+      updateSyncStatus('保存中…', 'saving');
       try {
-        return await task();
+        const value = await task();
+        updateSyncStatus('保存済み', 'ready');
+        return value;
+      } catch (error) {
+        updateSyncStatus('通信エラー', 'error');
+        throw error;
       } finally {
         S.sharedWritePending = Math.max(0, S.sharedWritePending - 1);
+        if (S.sharedWritePending === 0 && !$('syncStatus')?.classList.contains('is-error')) {
+          setTimeout(() => updateSyncStatus('更新', 'ready'), 900);
+        }
       }
     });
   sharedPortalWriteQueue = run.catch(() => undefined);
@@ -319,28 +329,61 @@ function queueSharedPortalWrite(task) {
 }
 
 
+
 async function persistSharedPortalMutation(mutator) {
   return queueSharedPortalWrite(async () => {
-    const { sharedProject, revision } = await fetchLatestSharedPortalProject();
-    const merged = normalizedSharedPortalState(parseSharedPortalState(sharedProject) || {});
-    await mutator(merged);
+    let lastError = null;
 
-    const method = sharedProject ? 'PUT' : 'POST';
-    const result = await api(API.projects, {
-      method,
-      body: sharedPortalStateBody(merged)
-    });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const { sharedProject, revision } = await fetchLatestSharedPortalProject();
+        const merged = normalizedSharedPortalState(parseSharedPortalState(sharedProject) || {});
+        await mutator(merged);
 
-    const createdId = result?.project?.id || result?.item?.id || result?.id || '';
-    if (!sharedProject && createdId) S.sharedPortalProjectId = String(createdId);
-    if (!S.sharedPortalProjectId) {
-      const confirmed = await fetchLatestSharedPortalProject();
-      if (!confirmed.sharedProject) throw new Error('共有データの保存結果を確認できませんでした。');
+        const method = sharedProject ? 'PUT' : 'POST';
+        const result = await api(API.projects, {
+          method,
+          body: sharedPortalStateBody(merged)
+        });
+
+        const createdId = result?.project?.id || result?.item?.id || result?.id || '';
+        if (!sharedProject && createdId) S.sharedPortalProjectId = String(createdId);
+
+        const confirmed = await fetchLatestSharedPortalProject();
+        if (!confirmed.sharedProject) {
+          throw new Error('共有データの保存結果を確認できませんでした。');
+        }
+
+        const confirmedState = normalizedSharedPortalState(
+          parseSharedPortalState(confirmed.sharedProject) || {}
+        );
+        const expectedState = normalizedSharedPortalState(merged);
+
+        if (JSON.stringify(confirmedState) !== JSON.stringify(expectedState)) {
+          if (attempt < 3) continue;
+          throw new Error('ほかのPCと同時更新されたため、保存を再確認できませんでした。');
+        }
+
+        applySharedPortalStateObject(confirmedState);
+        S.revision = String(
+          confirmed.revision ??
+          result?.revision ??
+          result?.updatedAt ??
+          revision ??
+          S.revision ??
+          ''
+        );
+        return true;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 180 * attempt));
+          continue;
+        }
+      }
     }
 
-    applySharedPortalStateObject(merged);
-    S.revision = String(result?.revision ?? result?.updatedAt ?? revision ?? S.revision ?? '');
-    return true;
+    throw lastError || new Error('共有データを保存できませんでした。');
   });
 }
 
@@ -1834,22 +1877,42 @@ function canAutoSyncNow() {
     !isEditingFieldActive();
 }
 
+
 function showRemoteUpdateNotice() {
   S.pendingRemoteUpdate = true;
   const notice = $('updateNotice');
   if (notice) notice.hidden = false;
+  updateSyncStatus('更新待ち', 'waiting');
 }
+
 
 function hideRemoteUpdateNotice() {
   S.pendingRemoteUpdate = false;
   const notice = $('updateNotice');
   if (notice) notice.hidden = true;
+  updateSyncStatus('更新', 'ready');
 }
 
-function updateSyncStatus(message) {
+
+function updateSyncStatus(message, state = 'ready') {
   const label = $('refreshLabel');
   if (label) label.textContent = message;
+
+  const status = $('syncStatus');
+  const statusText = $('syncStatusText');
+  if (!status || !statusText) return;
+
+  status.className = `sync-status is-${state}`;
+  const labels = {
+    ready: '同期済み',
+    saving: '保存中…',
+    syncing: '他PCを同期中…',
+    waiting: '更新待ち',
+    error: '通信エラー'
+  };
+  statusText.textContent = labels[state] || message || '同期済み';
 }
+
 
 async function autoSyncRemoteChanges() {
   if (!canAutoSyncNow()) {
@@ -1858,24 +1921,25 @@ async function autoSyncRemoteChanges() {
   }
 
   S.autoSyncing = true;
-  updateSyncStatus('同期中…');
+  updateSyncStatus('同期中…', 'syncing');
   try {
     await load({ silent: true });
     hideRemoteUpdateNotice();
     S.lastAutoSyncAt = new Date().toISOString();
-    updateSyncStatus('自動同期済み');
+    updateSyncStatus('自動同期済み', 'ready');
     setTimeout(() => {
-      if (!S.autoSyncing && $('refreshLabel')) $('refreshLabel').textContent = '更新';
+      if (!S.autoSyncing) updateSyncStatus('更新', 'ready');
     }, 1400);
     return true;
   } catch {
     showRemoteUpdateNotice();
-    updateSyncStatus('更新');
+    updateSyncStatus('通信エラー', 'error');
     return false;
   } finally {
     S.autoSyncing = false;
   }
 }
+
 
 
 async function pollRevision() {
@@ -1887,10 +1951,16 @@ async function pollRevision() {
 
     if (!S.revision) {
       S.revision = revision;
+      updateSyncStatus('更新', 'ready');
       return;
     }
 
-    if (!revision || revision === S.revision) return;
+    if (!revision || revision === S.revision) {
+      if (!$('syncStatus')?.classList.contains('is-saving')) {
+        updateSyncStatus('更新', 'ready');
+      }
+      return;
+    }
 
     if (canAutoSyncNow()) {
       await autoSyncRemoteChanges();
@@ -1898,7 +1968,7 @@ async function pollRevision() {
       showRemoteUpdateNotice();
     }
   } catch {
-    // 通信が一時的に失敗しても、次回の自動確認で再試行する。
+    updateSyncStatus('通信エラー', 'error');
   }
 }
 
