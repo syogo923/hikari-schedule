@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network RC5.2</title>
+  <title>光ポータル Ver3.2 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-rc5-2-operation-sync-fix">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-final">
 </head>
 
 <body>
@@ -439,9 +439,10 @@
             </div>
             <div class="dimension-grid">
               <label>材料価格（円／枚）<input id="materialPrice" type="number" min="0" step="any" inputmode="decimal"></label>
-              <label>価格基準日<input id="materialPriceDate" type="date"></label>
+              <label>価格改定日<input id="materialPriceDate" type="date"></label>
             </div>
-            <p id="materialPriceSource" class="material-price-source">材料マスタを選ぶと、基準日時点の価格を自動入力します。</p>
+            <p class="material-price-date-help">値上げ・値下げなど、材料価格を変更した日を記録します。過去の日付を指定すると、その時点の登録価格で計算できます。</p>
+            <p id="materialPriceSource" class="material-price-source">材料マスタを選ぶと、指定した価格改定日時点の価格を自動入力します。</p>
             <div class="dimension-grid">
               <label>製品 縦<div class="unit-input"><input id="productHeight" type="number" min="0" step="any" inputmode="decimal"><select id="productHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
               <label>製品 横<div class="unit-input"><input id="productWidth" type="number" min="0" step="any" inputmode="decimal"><select id="productWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
@@ -481,10 +482,10 @@
             </div>
             <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" required></label>
             <div class="dimension-grid">
-              <label>適用開始日<input id="materialMasterEffectiveDate" type="date" required></label>
+              <label>価格改定日<input id="materialMasterEffectiveDate" type="date" required></label>
               <label>仕入先<input id="materialMasterSupplier" placeholder="例：○○商事"></label>
             </div>
-            <label>価格変更理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー価格改定、仕入先変更"></textarea></label>
+            <label>価格改定理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー値上げ、仕入先変更、特価終了"></textarea></label>
             <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
           </form>
           <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><div id="materialMasterList" class="material-master-list"></div></section>
@@ -1123,7 +1124,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-rc5-2-operation-sync-fix"
+    src="/app.js?v=3.2-network-final"
     defer
   ></script>
 
