@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition RC - 材料価格履歴・見積連携 */
+/* 光ポータル Ver3.2 Network Edition RC2 - 緊急データ保護修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -259,23 +259,23 @@ function sharedPortalEmployeeId() {
 }
 
 
+
 function sharedPortalStateBody(sharedState = {}) {
   const employeeId = sharedPortalEmployeeId();
   if (!employeeId) throw new Error('共有保存には社員マスタが1名以上必要です。');
 
   const state = {
-    version: 2,
+    version: 3,
     updatedAt: new Date().toISOString(),
-    internalSchedules: Array.isArray(sharedState.internalSchedules) ? sharedState.internalSchedules : [],
-    stickyNotes: sharedState.stickyNotes && typeof sharedState.stickyNotes === 'object' && !Array.isArray(sharedState.stickyNotes)
-      ? sharedState.stickyNotes
-      : {},
-    assigneeProgress: sharedState.assigneeProgress && typeof sharedState.assigneeProgress === 'object' && !Array.isArray(sharedState.assigneeProgress)
-      ? sharedState.assigneeProgress
-      : {},
-    projectLifecycle: sharedState.projectLifecycle && typeof sharedState.projectLifecycle === 'object' && !Array.isArray(sharedState.projectLifecycle)
-      ? sharedState.projectLifecycle
-      : {}
+    internalSchedules: Array.isArray(sharedState.internalSchedules)
+      ? sharedState.internalSchedules
+      : [],
+    stickyNotes:
+      sharedState.stickyNotes &&
+      typeof sharedState.stickyNotes === 'object' &&
+      !Array.isArray(sharedState.stickyNotes)
+        ? sharedState.stickyNotes
+        : {}
   };
 
   return {
@@ -317,34 +317,34 @@ function sharedPortalStateSnapshot() {
   };
 }
 
+
 function normalizedSharedPortalState(state = {}) {
   return {
     internalSchedules: Array.isArray(state.internalSchedules)
       ? state.internalSchedules.map(normalizeInternalSchedule)
       : [],
-    stickyNotes: state.stickyNotes && typeof state.stickyNotes === 'object' && !Array.isArray(state.stickyNotes)
-      ? { ...state.stickyNotes }
-      : {},
-    assigneeProgress: state.assigneeProgress && typeof state.assigneeProgress === 'object' && !Array.isArray(state.assigneeProgress)
-      ? Object.fromEntries(Object.entries(state.assigneeProgress).map(([id, value]) => [id, { ...(value || {}) }]))
-      : {},
-    projectLifecycle: state.projectLifecycle && typeof state.projectLifecycle === 'object' && !Array.isArray(state.projectLifecycle)
-      ? Object.fromEntries(Object.entries(state.projectLifecycle).map(([id, value]) => [id, { ...(value || {}) }]))
-      : {}
+    stickyNotes:
+      state.stickyNotes &&
+      typeof state.stickyNotes === 'object' &&
+      !Array.isArray(state.stickyNotes)
+        ? { ...state.stickyNotes }
+        : {},
+    assigneeProgress: {},
+    projectLifecycle: {}
   };
 }
 
+
 function applySharedPortalStateObject(state = {}) {
   const normalized = normalizedSharedPortalState(state);
+
+  // 共有管理レコードは社内予定と日付メモだけを反映する。
+  // 担当者進捗・製作完了・納品完了は各案件本体へ保存する。
   S.internalSchedules = normalized.internalSchedules;
   S.stickyNotes = normalized.stickyNotes;
-  S.assigneeProgress = normalized.assigneeProgress;
-  S.projectLifecycle = normalized.projectLifecycle;
 
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
   localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
-  saveAssigneeProgress();
-  saveProjectLifecycle();
 }
 
 async function fetchLatestSharedPortalProject() {
@@ -463,16 +463,9 @@ async function saveSharedStickyNote(date, text) {
   });
 }
 
-async function saveSharedProjectRecord(projectId) {
-  const project = S.projects.find(item => item.id === projectId);
-  if (!project) throw new Error('案件が見つかりません。');
-  const progress = { ...projectAssigneeProgress(project) };
-  const lifecycle = { ...projectLifecycle(project) };
 
-  return persistSharedPortalMutation(state => {
-    state.assigneeProgress[projectId] = progress;
-    state.projectLifecycle[projectId] = lifecycle;
-  });
+async function saveSharedProjectRecord(projectId) {
+  return persistSharedProjectState(projectId);
 }
 
 function localPortalBackupPayload() {
@@ -584,20 +577,17 @@ async function importAndMergePortalBackups(files) {
   toast(`${backups.length}台分のデータを共有へ結合しました`);
 }
 
+
 async function persistSharedPortalPatch(patch = {}) {
   return persistSharedPortalMutation(state => {
-    if (Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) state.internalSchedules = patch.internalSchedules.map(normalizeInternalSchedule);
-    if (Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) state.stickyNotes = { ...(patch.stickyNotes || {}) };
-    if (Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')) {
-      state.assigneeProgress = Object.fromEntries(
-        Object.entries(patch.assigneeProgress || {}).map(([id, value]) => [id, { ...(value || {}) }])
-      );
+    if (Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) {
+      state.internalSchedules = patch.internalSchedules.map(normalizeInternalSchedule);
     }
-    if (Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')) {
-      state.projectLifecycle = Object.fromEntries(
-        Object.entries(patch.projectLifecycle || {}).map(([id, value]) => [id, { ...(value || {}) }])
-      );
+    if (Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) {
+      state.stickyNotes = { ...(patch.stickyNotes || {}) };
     }
+
+    // 担当者進捗と案件ステータスは案件本体へ保存する。
   });
 }
 
@@ -998,17 +988,114 @@ function sharedProjectBody(project) {
 }
 
 
-async function persistSharedProjectState(projectId) {
-  const project = S.projects.find(item => item.id === projectId);
-  if (!project) return false;
-  S.assigneeProgress[projectId] = { ...projectAssigneeProgress(project) };
-  S.projectLifecycle[projectId] = { ...projectLifecycle(project) };
-  saveAssigneeProgress();
-  saveProjectLifecycle();
-  await saveSharedProjectRecord(projectId);
-  return true;
+
+function emergencyProjectSnapshot(projects = []) {
+  const snapshot = projects
+    .filter(project => !isSharedPortalProject(project))
+    .map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
+
+  localStorage.setItem('hikari_portal_emergency_project_snapshot', JSON.stringify({
+    createdAt: new Date().toISOString(),
+    projects: snapshot
+  }));
+
+  return snapshot;
 }
 
+async function restoreMissingProjects(missingProjects = []) {
+  for (const project of missingProjects) {
+    try {
+      await api(API.projects, {
+        method: 'POST',
+        body: {
+          ...sharedProjectBody(project),
+          id: '',
+          ...actorPayload()
+        }
+      });
+    } catch {
+      // 後続の再取得で復旧状況を確認する。
+    }
+  }
+}
+
+
+async function persistSharedProjectState(projectId) {
+  const latestData = await api(API.projects);
+  const latestProjects = (latestData.projects || [])
+    .filter(project => !isSharedPortalProject(project));
+  const latestProject = latestProjects.find(project => project.id === projectId);
+
+  if (!latestProject) {
+    throw new Error('更新対象の案件がサーバー上に見つかりません。');
+  }
+
+  const localProject = S.projects.find(project => project.id === projectId) || latestProject;
+  const progress = { ...projectAssigneeProgress(localProject) };
+  const lifecycle = { ...projectLifecycle(localProject) };
+
+  S.assigneeProgress[projectId] = progress;
+  S.projectLifecycle[projectId] = lifecycle;
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+
+  const beforeSnapshot = emergencyProjectSnapshot(latestProjects);
+
+  const target = {
+    ...latestProject,
+    assigneeProgress: progress,
+    lifecycle,
+    portalState: { assigneeProgress: progress, lifecycle }
+  };
+
+  await api(API.projects, {
+    method: 'PUT',
+    body: sharedProjectBody(target)
+  });
+
+  const confirmedData = await api(API.projects);
+  const confirmedProjects = (confirmedData.projects || [])
+    .filter(project => !isSharedPortalProject(project));
+  const confirmedIds = new Set(confirmedProjects.map(project => project.id));
+  const missingProjects = beforeSnapshot.filter(project => !confirmedIds.has(project.id));
+
+  if (missingProjects.length) {
+    await restoreMissingProjects(missingProjects);
+    await load({ silent: true });
+    throw new Error(
+      `安全装置が${missingProjects.length}件の案件消失を検知し、復旧処理を実行しました。画面を確認してください。`
+    );
+  }
+
+  const confirmedTarget = confirmedProjects.find(project => project.id === projectId);
+  if (!confirmedTarget) {
+    throw new Error('更新後の案件を確認できませんでした。');
+  }
+
+  const confirmedLifecycle =
+    confirmedTarget.portalState?.lifecycle ||
+    confirmedTarget.lifecycle ||
+    lifecycle;
+  const confirmedProgress =
+    confirmedTarget.portalState?.assigneeProgress ||
+    confirmedTarget.assigneeProgress ||
+    progress;
+
+  S.projectLifecycle[projectId] = { ...confirmedLifecycle };
+  S.assigneeProgress[projectId] = { ...confirmedProgress };
+  saveProjectLifecycle();
+  saveAssigneeProgress();
+
+  S.revision = String(
+    confirmedData.revision ??
+    confirmedData.updatedAt ??
+    latestData.revision ??
+    S.revision ??
+    ''
+  );
+
+  return true;
+}
 
 async function setProjectLifecycle(projectId, status) {
   const project = S.projects.find(item => item.id === projectId);
@@ -1754,16 +1841,20 @@ async function load({ silent = false } = {}) {
         employeeIds: projectEmployeeIds(project)
       }));
 
+    // 共有管理レコードからは社内予定と日付メモだけを読み込む。
+    if (sharedPortalProject) applySharedPortalState(sharedPortalProject);
+
+    // 担当者進捗と案件ステータスは各案件本体の最新値を優先する。
     S.projects.forEach(project => {
       const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
       const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
-      if (remoteProgress && typeof remoteProgress === 'object') S.assigneeProgress[project.id] = { ...remoteProgress };
-      if (remoteLifecycle && typeof remoteLifecycle === 'object') S.projectLifecycle[project.id] = { ...remoteLifecycle };
+      if (remoteProgress && typeof remoteProgress === 'object') {
+        S.assigneeProgress[project.id] = { ...remoteProgress };
+      }
+      if (remoteLifecycle && typeof remoteLifecycle === 'object') {
+        S.projectLifecycle[project.id] = { ...remoteLifecycle };
+      }
     });
-
-    // 共有データが存在するときだけ読み込む。
-    // 起動時には共有レコードを自動作成しないため、保存エラーで画面全体が止まらない。
-    if (sharedPortalProject) applySharedPortalState(sharedPortalProject);
 
     saveAssigneeProgress();
     saveProjectLifecycle();
