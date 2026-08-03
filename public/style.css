@@ -2693,3 +2693,17 @@ textarea:focus-visible,
   font-size: 12px;
   line-height: 1.55;
 }
+
+
+/* Ver3.2.1 材料マスタ共有 */
+.material-share-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 4px solid #067647;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #05603a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
