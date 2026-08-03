@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition RC5.2 - 操作維持・同期読込修正 */
+/* 光ポータル Ver3.2 Network Edition 正式版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -3258,7 +3258,7 @@ function updateMaterialPriceFromSelection() {
   $('materialPrice').value = entry?.price ?? '';
   if ($('materialPriceSource')) {
     $('materialPriceSource').textContent =
-      `${entry?.effectiveDate || '—'}適用の価格${entry?.supplier ? ` ／ ${entry.supplier}` : ''}を使用しています。`;
+      `${entry?.effectiveDate || '—'}改定価格${entry?.supplier ? ` ／ ${entry.supplier}` : ''}を使用しています。`;
   }
 }
 
@@ -3306,7 +3306,7 @@ function renderMaterialMaster() {
           <div>
             <strong>${esc(item.name)}</strong>
             <span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span>
-            <small>${yen(Number(item.price), 0)} ／ 適用開始 ${esc(item.effectiveDate || '—')}</small>
+            <small>${yen(Number(item.price), 0)} ／ 価格改定日 ${esc(item.effectiveDate || '—')}</small>
             ${item.supplier ? `<small>仕入先：${esc(item.supplier)}</small>` : ''}
           </div>
           <div>
@@ -3381,7 +3381,7 @@ function bindCalculatorEvents() {
         !(Number($('materialMasterHeight').value) > 0) ||
         !(Number($('materialMasterWidth').value) > 0) ||
         !(price >= 0) || !effectiveDate) {
-      return toast('材料情報と適用開始日を正しく入力してください。');
+      return toast('材料情報と価格改定日日を正しく入力してください。');
     }
 
     const history = previous ? [...previous.priceHistory] : [];
@@ -3390,7 +3390,7 @@ function bindCalculatorEvents() {
         safeTrim(latest.supplier) !== supplier) {
       history.push(normalizeMaterialHistoryEntry({
         effectiveDate, price, supplier,
-        reason: reason || (previous ? '価格変更' : '新規登録'),
+        reason: reason || (previous ? '価格改定' : '新規登録'),
         recordedAt: new Date().toISOString(),
         recordedBy: employeeName(S.actorEmployeeId)
       }));
