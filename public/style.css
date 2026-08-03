@@ -2707,3 +2707,11 @@ textarea:focus-visible,
   font-weight: 700;
   line-height: 1.5;
 }
+
+
+/* Ver3.2.2 二重登録防止 */
+button[aria-busy="true"],
+input[aria-busy="true"] {
+  cursor: wait;
+  opacity: .72;
+}
