@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β5 - 競合防止・同期状態表示 */
+/* 光ポータル Ver3.2 Network Edition β6 - 同期詳細・操作性改善 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -1601,7 +1601,10 @@ async function load({ silent = false } = {}) {
     updateActorStatus();
     requestActorIfNeeded();
     const lastUpdated = $('lastUpdated');
-    if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}`;
+    const now = new Date();
+    S.lastAutoSyncAt = now.toISOString();
+    if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(now)}`;
+    renderSyncDetail();
   } catch (error) {
     // 共有データに問題があっても、取得済みのローカルデータで画面を描画する。
     try { render(); } catch {}
@@ -1859,6 +1862,68 @@ function openHistoryDetail(index) {
 }
 
 
+
+function formatSyncDateTime(value) {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('ja-JP', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).format(new Date(value));
+  } catch {
+    return '—';
+  }
+}
+
+function syncStateDetails() {
+  const status = $('syncStatus');
+  if (status?.classList.contains('is-error') || !navigator.onLine) {
+    return { state: 'error', label: '通信エラー', message: 'ネットワーク接続またはサーバーへの接続を確認してください。' };
+  }
+  if (status?.classList.contains('is-saving')) {
+    return { state: 'saving', label: '保存中…', message: '変更内容を共有データへ保存しています。' };
+  }
+  if (status?.classList.contains('is-syncing')) {
+    return { state: 'syncing', label: '同期中…', message: 'ほかのPCの最新データを取得しています。' };
+  }
+  if (status?.classList.contains('is-waiting')) {
+    return { state: 'waiting', label: '更新待ち', message: '入力中のため、自動同期を一時停止しています。' };
+  }
+  return { state: 'ready', label: '同期済み', message: 'すべてのPCで共有できる状態です。' };
+}
+
+function renderSyncDetail() {
+  const detail = syncStateDetails();
+  const dot = $('syncDetailDot');
+  if (dot) dot.className = `sync-detail-dot is-${detail.state}`;
+  if ($('syncDetailState')) $('syncDetailState').textContent = detail.label;
+  if ($('syncDetailMessage')) $('syncDetailMessage').textContent = detail.message;
+  if ($('syncDetailOnline')) $('syncDetailOnline').textContent = navigator.onLine ? 'オンライン' : 'オフライン';
+  if ($('syncDetailLastSync')) $('syncDetailLastSync').textContent = formatSyncDateTime(S.lastAutoSyncAt);
+  if ($('syncDetailSchedules')) $('syncDetailSchedules').textContent = `${S.internalSchedules.length}件`;
+  if ($('syncDetailNotes')) $('syncDetailNotes').textContent = `${Object.keys(S.stickyNotes).length}件`;
+  if ($('syncDetailProgress')) $('syncDetailProgress').textContent = `${Object.keys(S.assigneeProgress).length}案件`;
+  if ($('syncDetailLifecycle')) $('syncDetailLifecycle').textContent = `${Object.keys(S.projectLifecycle).length}案件`;
+}
+
+function openSyncDetail() {
+  renderSyncDetail();
+  const dialog = $('syncDetailDialog');
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function updateNetworkStatus() {
+  if (navigator.onLine) {
+    if ($('syncStatus')?.classList.contains('is-error')) updateSyncStatus('更新', 'ready');
+  } else {
+    updateSyncStatus('通信エラー', 'error');
+  }
+  renderSyncDetail();
+}
+
 function hasOpenEditingDialog() {
   return Boolean(document.querySelector('dialog[open]'));
 }
@@ -1894,6 +1959,7 @@ function hideRemoteUpdateNotice() {
 }
 
 
+
 function updateSyncStatus(message, state = 'ready') {
   const label = $('refreshLabel');
   if (label) label.textContent = message;
@@ -1911,6 +1977,7 @@ function updateSyncStatus(message, state = 'ready') {
     error: '通信エラー'
   };
   statusText.textContent = labels[state] || message || '同期済み';
+  renderSyncDetail();
 }
 
 
@@ -2189,6 +2256,34 @@ function bindFixedEvents() {
       button.classList.remove('is-loading');
     }
   };
+  $('syncStatus').onclick = openSyncDetail;
+  $('syncNow').onclick = async () => {
+    const button = $('syncNow');
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = '同期中…';
+    try {
+      await load();
+      hideRemoteUpdateNotice();
+      updateSyncStatus('同期済み', 'ready');
+      renderSyncDetail();
+      toast('最新の共有データに同期しました');
+    } catch (error) {
+      updateSyncStatus('通信エラー', 'error');
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  };
+  $('openSharedDataManagement').onclick = () => {
+    $('syncDetailDialog').close();
+    switchView('masters');
+    requestAnimationFrame(() => document.querySelector('.portal-data-management')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+
   $('search').oninput = event => { S.q = event.target.value; renderSchedule(); renderDeadlines(); };
   $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
