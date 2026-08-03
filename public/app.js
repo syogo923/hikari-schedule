@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β3 - 差分共有・旧データ救出 */
+/* 光ポータル Ver3.2 Network Edition β4 - 自動同期 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -56,7 +56,10 @@ const S = {
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   calendarQ: '',
   calendarEmployeeId: '',
-  sharedPortalProjectId: ''
+  sharedPortalProjectId: '',
+  autoSyncing: false,
+  sharedWritePending: 0,
+  lastAutoSyncAt: ''
 };
 
 // 共有データの書き込みを直列化し、同時保存による上書きを防ぐ。
@@ -299,8 +302,18 @@ async function fetchLatestSharedPortalProject() {
   return { sharedProject, revision: data.revision ?? data.updatedAt ?? '' };
 }
 
+
 function queueSharedPortalWrite(task) {
-  const run = sharedPortalWriteQueue.catch(() => undefined).then(task);
+  const run = sharedPortalWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      S.sharedWritePending += 1;
+      try {
+        return await task();
+      } finally {
+        S.sharedWritePending = Math.max(0, S.sharedWritePending - 1);
+      }
+    });
   sharedPortalWriteQueue = run.catch(() => undefined);
   return run;
 }
@@ -1802,22 +1815,105 @@ function openHistoryDetail(index) {
   $('historyDetailDialog').showModal();
 }
 
+
+function hasOpenEditingDialog() {
+  return Boolean(document.querySelector('dialog[open]'));
+}
+
+function isEditingFieldActive() {
+  const active = document.activeElement;
+  if (!active) return false;
+  return active.matches('input, textarea, select, [contenteditable="true"]');
+}
+
+function canAutoSyncNow() {
+  return !document.hidden &&
+    !S.autoSyncing &&
+    S.sharedWritePending === 0 &&
+    !hasOpenEditingDialog() &&
+    !isEditingFieldActive();
+}
+
+function showRemoteUpdateNotice() {
+  S.pendingRemoteUpdate = true;
+  const notice = $('updateNotice');
+  if (notice) notice.hidden = false;
+}
+
+function hideRemoteUpdateNotice() {
+  S.pendingRemoteUpdate = false;
+  const notice = $('updateNotice');
+  if (notice) notice.hidden = true;
+}
+
+function updateSyncStatus(message) {
+  const label = $('refreshLabel');
+  if (label) label.textContent = message;
+}
+
+async function autoSyncRemoteChanges() {
+  if (!canAutoSyncNow()) {
+    showRemoteUpdateNotice();
+    return false;
+  }
+
+  S.autoSyncing = true;
+  updateSyncStatus('同期中…');
+  try {
+    await load({ silent: true });
+    hideRemoteUpdateNotice();
+    S.lastAutoSyncAt = new Date().toISOString();
+    updateSyncStatus('自動同期済み');
+    setTimeout(() => {
+      if (!S.autoSyncing && $('refreshLabel')) $('refreshLabel').textContent = '更新';
+    }, 1400);
+    return true;
+  } catch {
+    showRemoteUpdateNotice();
+    updateSyncStatus('更新');
+    return false;
+  } finally {
+    S.autoSyncing = false;
+  }
+}
+
+
 async function pollRevision() {
-  if (document.hidden || S.pendingRemoteUpdate) return;
+  if (document.hidden || S.autoSyncing) return;
+
   try {
     const data = await api(`${API.projects}?mode=status`);
     const revision = String(data.revision ?? data.updatedAt ?? data.status?.revision ?? '');
-    if (!S.revision) { S.revision = revision; return; }
-    if (revision && revision !== S.revision) {
-      S.pendingRemoteUpdate = true;
-      if ($('updateNotice')) $('updateNotice').hidden = false;
+
+    if (!S.revision) {
+      S.revision = revision;
+      return;
     }
-  } catch {}
+
+    if (!revision || revision === S.revision) return;
+
+    if (canAutoSyncNow()) {
+      await autoSyncRemoteChanges();
+    } else {
+      showRemoteUpdateNotice();
+    }
+  } catch {
+    // 通信が一時的に失敗しても、次回の自動確認で再試行する。
+  }
 }
+
 
 function startPolling() {
   clearInterval(S.pollTimer);
   S.pollTimer = setInterval(pollRevision, POLL_INTERVAL);
+
+  if (!startPolling.visibilityBound) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollRevision();
+    });
+    window.addEventListener('focus', () => pollRevision());
+    startPolling.visibilityBound = true;
+  }
 }
 
 async function bulkDeleteSelectedProjects() {
@@ -2030,8 +2126,14 @@ function bindFixedEvents() {
   $('historyActionFilter').onchange = renderHistory;
   $('historyActorFilter').onchange = renderHistory;
   $('historySearch').oninput = renderHistory;
-  $('applyUpdate').onclick = async () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; await load(); toast('最新のデータに更新しました'); };
-  $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
+  $('applyUpdate').onclick = async () => {
+    hideRemoteUpdateNotice();
+    await load();
+    toast('最新のデータに更新しました');
+  };
+  $('dismissUpdate').onclick = () => {
+    hideRemoteUpdateNotice();
+  };
   $('manageInternalSchedule').onclick = () => openInternalSchedule();
   $('resetInternalSchedule').onclick = resetInternalScheduleForm;
   $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
