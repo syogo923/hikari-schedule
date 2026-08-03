@@ -2402,3 +2402,43 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
 .update-notice-text span {
   line-height: 1.45;
 }
+
+
+/* Ver3.2 Network β5: 同期状態表示 */
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #526072;
+  white-space: nowrap;
+}
+.sync-status i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22a06b;
+  box-shadow: 0 0 0 3px rgba(34, 160, 107, .12);
+}
+.sync-status.is-saving i,
+.sync-status.is-syncing i {
+  background: #2f6fed;
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, .13);
+  animation: syncPulse 1s ease-in-out infinite;
+}
+.sync-status.is-waiting i {
+  background: #d99a16;
+  box-shadow: 0 0 0 3px rgba(217, 154, 22, .14);
+}
+.sync-status.is-error {
+  color: #b42318;
+}
+.sync-status.is-error i {
+  background: #d92d20;
+  box-shadow: 0 0 0 3px rgba(217, 45, 32, .13);
+}
+@keyframes syncPulse {
+  50% { opacity: .45; transform: scale(.8); }
+}
