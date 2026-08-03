@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 共有保存削除・安定修正版 */
+/* 光ポータル Ver3.2 Network Edition β2 - 全PC共有基盤 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -58,6 +58,9 @@ const S = {
   calendarEmployeeId: '',
   sharedPortalProjectId: ''
 };
+
+// 共有データの書き込みを直列化し、同時保存による上書きを防ぐ。
+let sharedPortalWriteQueue = Promise.resolve();
 
 const $ = id => byId(id);
 const fd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -185,18 +188,12 @@ function parseSharedPortalState(project) {
   }
 }
 
+
 function applySharedPortalState(project) {
   const state = parseSharedPortalState(project);
   if (!state) return false;
   S.sharedPortalProjectId = project.id || '';
-  if (Array.isArray(state.internalSchedules)) S.internalSchedules = state.internalSchedules.map(normalizeInternalSchedule);
-  if (state.stickyNotes && typeof state.stickyNotes === 'object' && !Array.isArray(state.stickyNotes)) S.stickyNotes = { ...state.stickyNotes };
-  if (state.assigneeProgress && typeof state.assigneeProgress === 'object' && !Array.isArray(state.assigneeProgress)) S.assigneeProgress = { ...state.assigneeProgress };
-  if (state.projectLifecycle && typeof state.projectLifecycle === 'object' && !Array.isArray(state.projectLifecycle)) S.projectLifecycle = { ...state.projectLifecycle };
-  saveAssigneeProgress();
-  saveProjectLifecycle();
-  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
-  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  applySharedPortalStateObject(state);
   return true;
 }
 
@@ -205,30 +202,36 @@ function sharedPortalEmployeeId() {
   return ordered('employees').find(item => item.active !== false)?.id || '';
 }
 
-function sharedPortalStateBody() {
-  // 既存の案件APIには担当者必須の入力チェックがあるため、
-  // 共有管理レコードには現在の利用者、または社員マスタの先頭を設定する。
+
+function sharedPortalStateBody(sharedState = {}) {
   const employeeId = sharedPortalEmployeeId();
   if (!employeeId) throw new Error('共有保存には社員マスタが1名以上必要です。');
+
+  const state = {
+    version: 2,
+    updatedAt: new Date().toISOString(),
+    internalSchedules: Array.isArray(sharedState.internalSchedules) ? sharedState.internalSchedules : [],
+    stickyNotes: sharedState.stickyNotes && typeof sharedState.stickyNotes === 'object' && !Array.isArray(sharedState.stickyNotes)
+      ? sharedState.stickyNotes
+      : {},
+    assigneeProgress: sharedState.assigneeProgress && typeof sharedState.assigneeProgress === 'object' && !Array.isArray(sharedState.assigneeProgress)
+      ? sharedState.assigneeProgress
+      : {},
+    projectLifecycle: sharedState.projectLifecycle && typeof sharedState.projectLifecycle === 'object' && !Array.isArray(sharedState.projectLifecycle)
+      ? sharedState.projectLifecycle
+      : {}
+  };
+
   return {
     id: S.sharedPortalProjectId || '',
     shipNo: SHARED_PORTAL_SHIP_NO,
-    // 共有管理レコードは通常案件の必須チェックを通す固定値を使用する。
-    // 一覧・月間カレンダーには表示されない。
     displayName: 'ポータル共有設定',
     productName: '共有データ',
     client: SHARED_PORTAL_CLIENT,
     employeeIds: [employeeId],
     employeeId,
     dueDate: '2099-12-31',
-    notes: JSON.stringify({
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      internalSchedules: S.internalSchedules,
-      stickyNotes: S.stickyNotes,
-      assigneeProgress: S.assigneeProgress,
-      projectLifecycle: S.projectLifecycle
-    }),
+    notes: JSON.stringify(state),
     quantity: 0,
     spec: SHARED_PORTAL_SPEC,
     completed: false,
@@ -243,22 +246,122 @@ function hasLocalSharedPortalState() {
     Object.keys(S.projectLifecycle).length > 0;
 }
 
+
+
+function sharedPortalStateSnapshot() {
+  return {
+    internalSchedules: S.internalSchedules.map(item => ({ ...item, dates: [...(item.dates || [])] })),
+    stickyNotes: { ...S.stickyNotes },
+    assigneeProgress: Object.fromEntries(
+      Object.entries(S.assigneeProgress).map(([projectId, progress]) => [projectId, { ...(progress || {}) }])
+    ),
+    projectLifecycle: Object.fromEntries(
+      Object.entries(S.projectLifecycle).map(([projectId, lifecycle]) => [projectId, { ...(lifecycle || {}) }])
+    )
+  };
+}
+
+function normalizedSharedPortalState(state = {}) {
+  return {
+    internalSchedules: Array.isArray(state.internalSchedules)
+      ? state.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes: state.stickyNotes && typeof state.stickyNotes === 'object' && !Array.isArray(state.stickyNotes)
+      ? { ...state.stickyNotes }
+      : {},
+    assigneeProgress: state.assigneeProgress && typeof state.assigneeProgress === 'object' && !Array.isArray(state.assigneeProgress)
+      ? Object.fromEntries(Object.entries(state.assigneeProgress).map(([id, value]) => [id, { ...(value || {}) }]))
+      : {},
+    projectLifecycle: state.projectLifecycle && typeof state.projectLifecycle === 'object' && !Array.isArray(state.projectLifecycle)
+      ? Object.fromEntries(Object.entries(state.projectLifecycle).map(([id, value]) => [id, { ...(value || {}) }]))
+      : {}
+  };
+}
+
+function applySharedPortalStateObject(state = {}) {
+  const normalized = normalizedSharedPortalState(state);
+  S.internalSchedules = normalized.internalSchedules;
+  S.stickyNotes = normalized.stickyNotes;
+  S.assigneeProgress = normalized.assigneeProgress;
+  S.projectLifecycle = normalized.projectLifecycle;
+
+  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+}
+
+async function fetchLatestSharedPortalProject() {
+  const data = await api(API.projects);
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  const sharedProject = projects.find(isSharedPortalProject) || null;
+  if (sharedProject?.id) S.sharedPortalProjectId = String(sharedProject.id);
+  return { sharedProject, revision: data.revision ?? data.updatedAt ?? '' };
+}
+
+function queueSharedPortalWrite(task) {
+  const run = sharedPortalWriteQueue.catch(() => undefined).then(task);
+  sharedPortalWriteQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function persistSharedPortalPatch(patch = {}) {
+  return queueSharedPortalWrite(async () => {
+    const localBefore = sharedPortalStateSnapshot();
+    const { sharedProject, revision } = await fetchLatestSharedPortalProject();
+    const latestParsed = parseSharedPortalState(sharedProject) || {};
+    const latest = normalizedSharedPortalState(latestParsed);
+
+    const merged = {
+      internalSchedules: Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')
+        ? patch.internalSchedules
+        : latest.internalSchedules,
+      stickyNotes: Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')
+        ? patch.stickyNotes
+        : latest.stickyNotes,
+      assigneeProgress: Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')
+        ? patch.assigneeProgress
+        : latest.assigneeProgress,
+      projectLifecycle: Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')
+        ? patch.projectLifecycle
+        : latest.projectLifecycle
+    };
+
+    // 共有レコードがまだない場合は、このPCに保存済みの既存データも引き継ぐ。
+    if (!sharedProject) {
+      if (!Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) merged.internalSchedules = localBefore.internalSchedules;
+      if (!Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) merged.stickyNotes = localBefore.stickyNotes;
+      if (!Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')) merged.assigneeProgress = localBefore.assigneeProgress;
+      if (!Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')) merged.projectLifecycle = localBefore.projectLifecycle;
+    }
+
+    const method = sharedProject ? 'PUT' : 'POST';
+    const result = await api(API.projects, {
+      method,
+      body: sharedPortalStateBody(merged)
+    });
+
+    const createdId = result?.project?.id || result?.item?.id || result?.id || '';
+    if (!sharedProject && createdId) S.sharedPortalProjectId = String(createdId);
+
+    if (!S.sharedPortalProjectId) {
+      const confirmed = await fetchLatestSharedPortalProject();
+      if (!confirmed.sharedProject) throw new Error('共有データの保存結果を確認できませんでした。');
+    }
+
+    applySharedPortalStateObject(merged);
+    S.revision = String(result?.revision ?? result?.updatedAt ?? revision ?? S.revision ?? '');
+    return true;
+  });
+}
+
 async function persistSharedPortalState() {
-  const creating = !S.sharedPortalProjectId;
-  const method = creating ? 'POST' : 'PUT';
-  const result = await api(API.projects, { method, body: sharedPortalStateBody() });
-
-  // POST後にAPIが作成案件を返す構成なら、その場でIDを保持する。
-  const createdId = result?.project?.id || result?.item?.id || result?.id || '';
-  if (creating && createdId) S.sharedPortalProjectId = String(createdId);
-
-  // APIがIDを返さない場合だけ、一覧を1回取得して管理レコードを特定する。
-  if (creating && !S.sharedPortalProjectId) {
-    const data = await api(API.projects);
-    const shared = (data.projects || []).find(isSharedPortalProject);
-    if (shared?.id) S.sharedPortalProjectId = String(shared.id);
-  }
-  return true;
+  return persistSharedPortalPatch({
+    internalSchedules: S.internalSchedules,
+    stickyNotes: S.stickyNotes,
+    assigneeProgress: S.assigneeProgress,
+    projectLifecycle: S.projectLifecycle
+  });
 }
 
 function loadInternalTools() {
@@ -272,17 +375,19 @@ function loadInternalTools() {
   } catch { S.stickyNotes = {}; }
 }
 
+
 async function saveInternalSchedules() {
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
-  await persistSharedPortalState();
+  await persistSharedPortalPatch({ internalSchedules: S.internalSchedules });
   renderSchedule();
   renderCalendar();
   renderInternalScheduleList();
 }
 
+
 async function saveStickyNotes() {
   localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
-  await persistSharedPortalState();
+  await persistSharedPortalPatch({ stickyNotes: S.stickyNotes });
   renderSchedule();
 }
 
@@ -571,22 +676,31 @@ function sharedProjectBody(project) {
   };
 }
 
+
 async function persistSharedProjectState(projectId) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project) return false;
-  const progress = projectAssigneeProgress(project);
-  const lifecycle = projectLifecycle(project);
-  S.assigneeProgress[projectId] = { ...progress };
-  S.projectLifecycle[projectId] = { ...lifecycle };
+
+  S.assigneeProgress[projectId] = { ...projectAssigneeProgress(project) };
+  S.projectLifecycle[projectId] = { ...projectLifecycle(project) };
   saveAssigneeProgress();
   saveProjectLifecycle();
-  await persistSharedPortalState();
+
+  await persistSharedPortalPatch({
+    assigneeProgress: S.assigneeProgress,
+    projectLifecycle: S.projectLifecycle
+  });
   return true;
 }
+
 
 async function setProjectLifecycle(projectId, status) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project) return false;
+
+  const previousLifecycle = S.projectLifecycle[projectId]
+    ? { ...S.projectLifecycle[projectId] }
+    : null;
   const now = new Date().toISOString();
   const actor = employeeName(S.actorEmployeeId);
   const current = projectLifecycle(project);
@@ -627,7 +741,18 @@ async function setProjectLifecycle(projectId, status) {
   }
 
   saveProjectLifecycle();
-  await persistSharedProjectState(projectId);
+  try {
+    await persistSharedProjectState(projectId);
+  } catch (error) {
+    if (previousLifecycle) S.projectLifecycle[projectId] = previousLifecycle;
+    else delete S.projectLifecycle[projectId];
+    saveProjectLifecycle();
+    renderSchedule();
+    renderDeadlines();
+    toast(`共有保存に失敗しました：${error.message}`);
+    return false;
+  }
+
   renderSchedule();
   renderDeadlines();
   return true;
@@ -817,9 +942,17 @@ function assigneeProgressSummary(project) {
   return { progress, total, completed };
 }
 
+
 async function setAssigneeComplete(projectId, employeeId, completed) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
+
+  const previousProgress = S.assigneeProgress[projectId]
+    ? { ...S.assigneeProgress[projectId] }
+    : null;
+  const previousLifecycle = S.projectLifecycle[projectId]
+    ? { ...S.projectLifecycle[projectId] }
+    : null;
 
   const progress = projectAssigneeProgress(project);
   progress[employeeId] = Boolean(completed);
@@ -829,16 +962,25 @@ async function setAssigneeComplete(projectId, employeeId, completed) {
   const summary = assigneeProgressSummary(project);
   const lifecycle = projectLifecycle(project);
 
-  // 担当者全員が完了したら、案件も自動で「製作完了」にする。
-  if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
-    await setProjectLifecycle(projectId, 'production_complete');
-  }
-
-  // 誰か一人でも未完了へ戻したら、納品前の案件は「製作中」に戻す。
-  if (!completed && lifecycle.status !== 'in_progress') {
-    await setProjectLifecycle(projectId, 'in_progress');
-  } else if (!(summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress')) {
-    await persistSharedProjectState(projectId);
+  try {
+    if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
+      const saved = await setProjectLifecycle(projectId, 'production_complete');
+      if (!saved) throw new Error('製作完了の共有保存に失敗しました。');
+    } else if (!completed && lifecycle.status !== 'in_progress') {
+      const saved = await setProjectLifecycle(projectId, 'in_progress');
+      if (!saved) throw new Error('製作中への変更を共有保存できませんでした。');
+    } else {
+      await persistSharedProjectState(projectId);
+    }
+  } catch (error) {
+    if (previousProgress) S.assigneeProgress[projectId] = previousProgress;
+    else delete S.assigneeProgress[projectId];
+    if (previousLifecycle) S.projectLifecycle[projectId] = previousLifecycle;
+    else delete S.projectLifecycle[projectId];
+    saveAssigneeProgress();
+    saveProjectLifecycle();
+    toast(`担当者進捗の共有保存に失敗しました：${error.message}`);
+    return false;
   }
 
   return true;
