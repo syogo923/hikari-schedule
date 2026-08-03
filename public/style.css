@@ -2684,3 +2684,12 @@ textarea:focus-visible,
   background: #f4f3ff;
   color: #53389e;
 }
+
+
+/* Ver3.2 Network Edition 正式版 */
+.material-price-date-help {
+  margin: -4px 0 8px;
+  color: #526072;
+  font-size: 12px;
+  line-height: 1.55;
+}
