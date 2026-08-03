@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition RC4 - 共有レコード完全分離 */
+/* 光ポータル Ver3.2 Network Edition RC5 - 最終RC・案件直接ステータス共有 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -551,6 +551,7 @@ function queueSharedPortalWrite(task) {
 
 
 
+
 async function persistSharedPortalMutation(mutator) {
   return queueSharedPortalWrite(async () => {
     let lastError = null;
@@ -558,30 +559,29 @@ async function persistSharedPortalMutation(mutator) {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const allBefore = await api(API.projects);
-        const statusProjectBefore = (allBefore.projects || []).find(isStatusSharedProject) || null;
-        const protectedStatusState = normalizeStatusSharedState(
-          parseStatusSharedState(statusProjectBefore) || {
-            assigneeProgress: S.assigneeProgress,
-            projectLifecycle: S.projectLifecycle
-          }
-        );
+        const sharedProject =
+          (allBefore.projects || []).find(isScheduleMemoSharedProject) ||
+          null;
 
-        const sharedProject = (allBefore.projects || []).find(isScheduleMemoSharedProject) || null;
-        if (sharedProject?.id) S.sharedPortalProjectId = String(sharedProject.id);
-        const merged = normalizedSharedPortalState(parseSharedPortalState(sharedProject) || {});
+        if (sharedProject?.id) {
+          S.sharedPortalProjectId = String(sharedProject.id);
+        }
+
+        const merged = normalizedSharedPortalState(
+          parseSharedPortalState(sharedProject) || {}
+        );
         await mutator(merged);
 
-        const method = sharedProject ? 'PUT' : 'POST';
         const result = await api(API.projects, {
-          method,
+          method: sharedProject ? 'PUT' : 'POST',
           body: sharedPortalStateBody(merged)
         });
 
-        // 社内予定・メモ更新後も、進捗・ステータス専用レコードを保護する。
-        await ensureStatusRecordPreserved(protectedStatusState);
-
         const confirmedData = await api(API.projects);
-        const confirmedProject = (confirmedData.projects || []).find(isScheduleMemoSharedProject) || null;
+        const confirmedProject =
+          (confirmedData.projects || []).find(isScheduleMemoSharedProject) ||
+          null;
+
         if (!confirmedProject) {
           throw new Error('社内予定・メモ共有レコードを確認できませんでした。');
         }
@@ -593,7 +593,9 @@ async function persistSharedPortalMutation(mutator) {
 
         if (JSON.stringify(confirmedState) !== JSON.stringify(expectedState)) {
           if (attempt < 3) continue;
-          throw new Error('ほかのPCと同時更新されたため、保存を再確認できませんでした。');
+          throw new Error(
+            'ほかのPCと同時更新されたため、保存を再確認できませんでした。'
+          );
         }
 
         S.sharedPortalProjectId = String(confirmedProject.id || '');
@@ -610,7 +612,9 @@ async function persistSharedPortalMutation(mutator) {
       } catch (error) {
         lastError = error;
         if (attempt < 3) {
-          await new Promise(resolve => setTimeout(resolve, 180 * attempt));
+          await new Promise(resolve =>
+            setTimeout(resolve, 180 * attempt)
+          );
           continue;
         }
       }
@@ -642,6 +646,7 @@ async function saveSharedStickyNote(date, text) {
     else delete state.stickyNotes[date];
   });
 }
+
 
 
 async function saveSharedProjectRecord(projectId) {
@@ -1243,75 +1248,100 @@ async function ensureSharedScheduleMemoPreserved(snapshot, currentProjects = [])
 
 
 
+
 async function persistSharedProjectState(projectId) {
   return queueSharedPortalWrite(async () => {
     const latestData = await api(API.projects);
-    const allProjects = latestData.projects || [];
-
-    const scheduleProject = allProjects.find(isScheduleMemoSharedProject) || null;
-    const scheduleSnapshot = normalizedSharedPortalState(
-      parseSharedPortalState(scheduleProject) || {
-        internalSchedules: S.internalSchedules,
-        stickyNotes: S.stickyNotes
-      }
+    const allProjects = Array.isArray(latestData.projects)
+      ? latestData.projects
+      : [];
+    const latestProject = allProjects.find(
+      item => !isSharedPortalProject(item) && item.id === projectId
     );
 
-    const statusProject = allProjects.find(isStatusSharedProject) || null;
-    const latestStatus = normalizeStatusSharedState(
-      parseStatusSharedState(statusProject) || {
-        assigneeProgress: S.assigneeProgress,
-        projectLifecycle: S.projectLifecycle
-      }
-    );
-
-    const project = S.projects.find(item => item.id === projectId);
-    if (!project) throw new Error('更新対象の案件が見つかりません。');
-
-    latestStatus.assigneeProgress[projectId] = {
-      ...projectAssigneeProgress(project)
-    };
-    latestStatus.projectLifecycle[projectId] = {
-      ...projectLifecycle(project)
-    };
-
-    S.statusSharedProjectId = statusProject?.id ? String(statusProject.id) : '';
-    await writeStatusSharedState(latestStatus, statusProject);
-
-    // ステータス専用レコード更新後も、社内予定・メモ用レコードが残っているか確認する。
-    await ensureScheduleMemoRecordPreserved(scheduleSnapshot);
-
-    const confirmed = await api(API.projects);
-    const confirmedStatusProject = (confirmed.projects || []).find(isStatusSharedProject) || null;
-    if (!confirmedStatusProject) {
-      throw new Error('進捗・ステータス共有レコードを確認できませんでした。');
+    if (!latestProject) {
+      throw new Error('更新対象の案件がサーバー上に見つかりません。');
     }
 
-    const confirmedState = normalizeStatusSharedState(
-      parseStatusSharedState(confirmedStatusProject) || {}
+    const localProject =
+      S.projects.find(item => item.id === projectId) ||
+      latestProject;
+    const progress = { ...projectAssigneeProgress(localProject) };
+    const lifecycle = { ...projectLifecycle(localProject) };
+
+    // projects.mjs Ver2で保存できる案件拡張項目として、
+    // 対象案件1件だけへ進捗とステータスを保存する。
+    const body = {
+      ...latestProject,
+      assigneeProgress: progress,
+      lifecycle,
+      portalState: {
+        ...(latestProject.portalState || {}),
+        assigneeProgress: progress,
+        lifecycle
+      },
+      ...actorPayload()
+    };
+
+    await api(API.projects, {
+      method: 'PUT',
+      body
+    });
+
+    const confirmedData = await api(API.projects);
+    const confirmedProject = (confirmedData.projects || []).find(
+      item => !isSharedPortalProject(item) && item.id === projectId
     );
-    const expectedProgress = latestStatus.assigneeProgress[projectId] || {};
-    const expectedLifecycle = latestStatus.projectLifecycle[projectId] || {};
+
+    if (!confirmedProject) {
+      throw new Error('更新後の案件を確認できませんでした。');
+    }
+
+    const confirmedProgress =
+      confirmedProject.portalState?.assigneeProgress ||
+      confirmedProject.assigneeProgress ||
+      {};
+    const confirmedLifecycle =
+      confirmedProject.portalState?.lifecycle ||
+      confirmedProject.lifecycle ||
+      {};
 
     if (
-      JSON.stringify(confirmedState.assigneeProgress[projectId] || {}) !== JSON.stringify(expectedProgress) ||
-      JSON.stringify(confirmedState.projectLifecycle[projectId] || {}) !== JSON.stringify(expectedLifecycle)
+      JSON.stringify(confirmedProgress) !== JSON.stringify(progress) ||
+      JSON.stringify(confirmedLifecycle) !== JSON.stringify(lifecycle)
     ) {
-      throw new Error('進捗・ステータスの保存結果を確認できませんでした。');
+      throw new Error(
+        'ステータスの保存結果を確認できませんでした。projects.mjs Ver2のデプロイ状態を確認してください。'
+      );
     }
 
-    S.statusSharedProjectId = String(confirmedStatusProject.id || '');
-    S.assigneeProgress = confirmedState.assigneeProgress;
-    S.projectLifecycle = confirmedState.projectLifecycle;
+    S.assigneeProgress[projectId] = { ...confirmedProgress };
+    S.projectLifecycle[projectId] = { ...confirmedLifecycle };
     saveAssigneeProgress();
     saveProjectLifecycle();
 
+    const localIndex = S.projects.findIndex(item => item.id === projectId);
+    if (localIndex >= 0) {
+      S.projects[localIndex] = {
+        ...S.projects[localIndex],
+        assigneeProgress: { ...confirmedProgress },
+        lifecycle: { ...confirmedLifecycle },
+        portalState: {
+          ...(S.projects[localIndex].portalState || {}),
+          assigneeProgress: { ...confirmedProgress },
+          lifecycle: { ...confirmedLifecycle }
+        }
+      };
+    }
+
     S.revision = String(
-      confirmed.revision ??
-      confirmed.updatedAt ??
+      confirmedData.revision ??
+      confirmedData.updatedAt ??
       latestData.revision ??
       S.revision ??
       ''
     );
+
     return true;
   });
 }
@@ -2064,15 +2094,60 @@ async function load({ silent = false } = {}) {
         employeeIds: projectEmployeeIds(project)
       }));
 
-    // 社内予定・メモと、進捗・ステータスを別々の共有レコードから読み込む。
-    if (sharedPortalProject) applySharedPortalState(sharedPortalProject);
-    if (statusSharedProject) {
-      applyStatusSharedState(statusSharedProject);
-    } else {
-      // RC4初回のみ、各PCに残っている現在状態を共有候補として維持する。
-      saveAssigneeProgress();
-      saveProjectLifecycle();
+    // 社内予定とメモは専用共有レコードから読み込む。
+    if (sharedPortalProject) {
+      applySharedPortalState(sharedPortalProject);
     }
+
+    // RC5では進捗・ステータスを各案件本体から読み込む。
+    // RC4以前のSYS.PORTAL.STATUSは移行用の予備データとしてのみ参照する。
+    const legacyStatusState = statusSharedProject
+      ? normalizeStatusSharedState(
+          parseStatusSharedState(statusSharedProject) || {}
+        )
+      : { assigneeProgress: {}, projectLifecycle: {} };
+
+    const nextProgress = {};
+    const nextLifecycle = {};
+
+    S.projects.forEach(project => {
+      const projectProgress =
+        project.portalState?.assigneeProgress ||
+        project.assigneeProgress;
+      const projectLifecycleValue =
+        project.portalState?.lifecycle ||
+        project.lifecycle;
+
+      const fallbackProgress =
+        legacyStatusState.assigneeProgress?.[project.id];
+      const fallbackLifecycle =
+        legacyStatusState.projectLifecycle?.[project.id];
+
+      if (
+        projectProgress &&
+        typeof projectProgress === 'object' &&
+        !Array.isArray(projectProgress)
+      ) {
+        nextProgress[project.id] = { ...projectProgress };
+      } else if (fallbackProgress) {
+        nextProgress[project.id] = { ...fallbackProgress };
+      }
+
+      if (
+        projectLifecycleValue &&
+        typeof projectLifecycleValue === 'object' &&
+        !Array.isArray(projectLifecycleValue)
+      ) {
+        nextLifecycle[project.id] = { ...projectLifecycleValue };
+      } else if (fallbackLifecycle) {
+        nextLifecycle[project.id] = { ...fallbackLifecycle };
+      }
+    });
+
+    S.assigneeProgress = nextProgress;
+    S.projectLifecycle = nextLifecycle;
+    saveAssigneeProgress();
+    saveProjectLifecycle();
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
     render();
     requestAnimationFrame(() => scrollScheduleToToday());
