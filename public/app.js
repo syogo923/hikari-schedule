@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 全PC共有対応版 */
+/* 光ポータル Ver3.1 - 全PC共有安定修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -200,15 +200,24 @@ function applySharedPortalState(project) {
   return true;
 }
 
+function sharedPortalEmployeeId() {
+  if (S.actorEmployeeId && employee(S.actorEmployeeId)?.active !== false) return S.actorEmployeeId;
+  return ordered('employees').find(item => item.active !== false)?.id || '';
+}
+
 function sharedPortalStateBody() {
+  // 既存の案件APIには担当者必須の入力チェックがあるため、
+  // 共有管理レコードには現在の利用者、または社員マスタの先頭を設定する。
+  const employeeId = sharedPortalEmployeeId();
+  if (!employeeId) throw new Error('共有保存には社員マスタが1名以上必要です。');
   return {
     id: S.sharedPortalProjectId || '',
     shipNo: SHARED_PORTAL_SHIP_NO,
     displayName: API_EMPTY_TEXT,
     productName: API_EMPTY_TEXT,
     client: SHARED_PORTAL_CLIENT,
-    employeeIds: [],
-    employeeId: '',
+    employeeIds: [employeeId],
+    employeeId,
     dueDate: '',
     notes: JSON.stringify({
       version: 1,
@@ -233,9 +242,20 @@ function hasLocalSharedPortalState() {
 }
 
 async function persistSharedPortalState() {
-  const method = S.sharedPortalProjectId ? 'PUT' : 'POST';
-  await api(API.projects, { method, body: sharedPortalStateBody() });
-  if (!S.sharedPortalProjectId) await load({ silent: true });
+  const creating = !S.sharedPortalProjectId;
+  const method = creating ? 'POST' : 'PUT';
+  const result = await api(API.projects, { method, body: sharedPortalStateBody() });
+
+  // POST後にAPIが作成案件を返す構成なら、その場でIDを保持する。
+  const createdId = result?.project?.id || result?.item?.id || result?.id || '';
+  if (creating && createdId) S.sharedPortalProjectId = String(createdId);
+
+  // APIがIDを返さない場合だけ、一覧を1回取得して管理レコードを特定する。
+  if (creating && !S.sharedPortalProjectId) {
+    const data = await api(API.projects);
+    const shared = (data.projects || []).find(isSharedPortalProject);
+    if (shared?.id) S.sharedPortalProjectId = String(shared.id);
+  }
   return true;
 }
 
@@ -1212,21 +1232,36 @@ function render() {
 async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
+
+    // 共有レコード作成時に社員マスタを参照できるよう、最初にマスタを確定する。
+    S.masters = masterData.masters || S.masters;
+
     const allProjects = projectData.projects || [];
     const sharedPortalProject = allProjects.find(isSharedPortalProject) || null;
-    S.projects = allProjects.filter(project => !isSharedPortalProject(project)).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), productName: stripApiEmptyText(project.productName), employeeIds: projectEmployeeIds(project) }));
+    S.sharedPortalProjectId = sharedPortalProject?.id || '';
+    S.projects = allProjects
+      .filter(project => !isSharedPortalProject(project))
+      .map(project => ({
+        ...project,
+        displayName: stripApiEmptyText(project.displayName),
+        productName: stripApiEmptyText(project.productName),
+        employeeIds: projectEmployeeIds(project)
+      }));
+
     S.projects.forEach(project => {
       const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
       const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
       if (remoteProgress && typeof remoteProgress === 'object') S.assigneeProgress[project.id] = { ...remoteProgress };
       if (remoteLifecycle && typeof remoteLifecycle === 'object') S.projectLifecycle[project.id] = { ...remoteLifecycle };
     });
+
+    // 共有データが存在するときだけ読み込む。
+    // 起動時には共有レコードを自動作成しないため、保存エラーで画面全体が止まらない。
     if (sharedPortalProject) applySharedPortalState(sharedPortalProject);
+
     saveAssigneeProgress();
     saveProjectLifecycle();
-    S.masters = masterData.masters || S.masters;
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
-    if (!sharedPortalProject && hasLocalSharedPortalState()) await persistSharedPortalState();
     render();
     requestAnimationFrame(() => scrollScheduleToToday());
     updateActorStatus();
@@ -1234,6 +1269,8 @@ async function load({ silent = false } = {}) {
     const lastUpdated = $('lastUpdated');
     if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}`;
   } catch (error) {
+    // 共有データに問題があっても、取得済みのローカルデータで画面を描画する。
+    try { render(); } catch {}
     if (!silent) toast(error.message);
   }
 }
