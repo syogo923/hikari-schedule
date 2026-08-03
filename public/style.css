@@ -2593,3 +2593,43 @@ button.sync-status:hover {
     margin-left: 0;
   }
 }
+
+
+/* Ver3.2 Network β8: 品質向上 */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid rgba(47, 111, 237, .35);
+  outline-offset: 2px;
+}
+#toast {
+  max-width: min(520px, calc(100vw - 28px));
+  white-space: normal;
+  line-height: 1.5;
+}
+@media (max-width: 760px) {
+  .calendar-controls,
+  .deadline-filter-bar,
+  .portal-data-actions {
+    gap: 8px;
+  }
+  .calendar-controls > *,
+  .deadline-filter-bar > * {
+    min-width: 0;
+  }
+  .refresh-control {
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
