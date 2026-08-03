@@ -2386,3 +2386,10 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
 .internal-date-chip button{width:25px;height:25px;min-height:0;padding:0;border:0;border-radius:50%;background:#eef3f9;color:#475569;line-height:1}
 .internal-date-empty{color:#8a97a8;font-size:13px;font-weight:400}
 .internal-date-field>small{color:#64748b;font-weight:400}
+
+.portal-data-management{margin-top:24px;padding:20px;border:1px solid #d9e1ec;border-radius:14px;background:#fff}
+.portal-data-management h3{margin:0 0 6px}
+.portal-data-actions{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin-top:16px}
+.portal-import-label{display:grid;gap:6px;min-width:280px;font-weight:700}
+.portal-import-label input{width:100%;padding:9px;border:1px solid #ccd6e3;border-radius:8px;background:#f8fafc}
+.portal-data-note{margin:14px 0 0;color:#526072;font-size:13px}
