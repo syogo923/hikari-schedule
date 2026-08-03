@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β2 - 全PC共有基盤 */
+/* 光ポータル Ver3.2 Network Edition β3 - 差分共有・旧データ救出 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -305,35 +305,12 @@ function queueSharedPortalWrite(task) {
   return run;
 }
 
-async function persistSharedPortalPatch(patch = {}) {
+
+async function persistSharedPortalMutation(mutator) {
   return queueSharedPortalWrite(async () => {
-    const localBefore = sharedPortalStateSnapshot();
     const { sharedProject, revision } = await fetchLatestSharedPortalProject();
-    const latestParsed = parseSharedPortalState(sharedProject) || {};
-    const latest = normalizedSharedPortalState(latestParsed);
-
-    const merged = {
-      internalSchedules: Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')
-        ? patch.internalSchedules
-        : latest.internalSchedules,
-      stickyNotes: Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')
-        ? patch.stickyNotes
-        : latest.stickyNotes,
-      assigneeProgress: Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')
-        ? patch.assigneeProgress
-        : latest.assigneeProgress,
-      projectLifecycle: Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')
-        ? patch.projectLifecycle
-        : latest.projectLifecycle
-    };
-
-    // 共有レコードがまだない場合は、このPCに保存済みの既存データも引き継ぐ。
-    if (!sharedProject) {
-      if (!Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) merged.internalSchedules = localBefore.internalSchedules;
-      if (!Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) merged.stickyNotes = localBefore.stickyNotes;
-      if (!Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')) merged.assigneeProgress = localBefore.assigneeProgress;
-      if (!Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')) merged.projectLifecycle = localBefore.projectLifecycle;
-    }
+    const merged = normalizedSharedPortalState(parseSharedPortalState(sharedProject) || {});
+    await mutator(merged);
 
     const method = sharedProject ? 'PUT' : 'POST';
     const result = await api(API.projects, {
@@ -343,7 +320,6 @@ async function persistSharedPortalPatch(patch = {}) {
 
     const createdId = result?.project?.id || result?.item?.id || result?.id || '';
     if (!sharedProject && createdId) S.sharedPortalProjectId = String(createdId);
-
     if (!S.sharedPortalProjectId) {
       const confirmed = await fetchLatestSharedPortalProject();
       if (!confirmed.sharedProject) throw new Error('共有データの保存結果を確認できませんでした。');
@@ -352,6 +328,167 @@ async function persistSharedPortalPatch(patch = {}) {
     applySharedPortalStateObject(merged);
     S.revision = String(result?.revision ?? result?.updatedAt ?? revision ?? S.revision ?? '');
     return true;
+  });
+}
+
+async function upsertSharedInternalSchedule(schedule) {
+  const normalized = normalizeInternalSchedule(schedule);
+  return persistSharedPortalMutation(state => {
+    const index = state.internalSchedules.findIndex(item => item.id === normalized.id);
+    if (index >= 0) state.internalSchedules[index] = normalized;
+    else state.internalSchedules.push(normalized);
+  });
+}
+
+async function deleteSharedInternalSchedule(scheduleId) {
+  return persistSharedPortalMutation(state => {
+    state.internalSchedules = state.internalSchedules.filter(item => item.id !== scheduleId);
+  });
+}
+
+async function saveSharedStickyNote(date, text) {
+  return persistSharedPortalMutation(state => {
+    const value = safeTrim(text);
+    if (value) state.stickyNotes[date] = value;
+    else delete state.stickyNotes[date];
+  });
+}
+
+async function saveSharedProjectRecord(projectId) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project) throw new Error('案件が見つかりません。');
+  const progress = { ...projectAssigneeProgress(project) };
+  const lifecycle = { ...projectLifecycle(project) };
+
+  return persistSharedPortalMutation(state => {
+    state.assigneeProgress[projectId] = progress;
+    state.projectLifecycle[projectId] = lifecycle;
+  });
+}
+
+function localPortalBackupPayload() {
+  return {
+    format: 'hikari-portal-local-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sourceActor: employeeName(S.actorEmployeeId),
+    internalSchedules: S.internalSchedules.map(item => ({ ...normalizeInternalSchedule(item) })),
+    stickyNotes: { ...S.stickyNotes },
+    assigneeProgress: Object.fromEntries(
+      Object.entries(S.assigneeProgress).map(([id, value]) => [id, { ...(value || {}) }])
+    ),
+    projectLifecycle: Object.fromEntries(
+      Object.entries(S.projectLifecycle).map(([id, value]) => [id, { ...(value || {}) }])
+    )
+  };
+}
+
+function downloadJsonFile(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportLocalPortalData() {
+  const actor = safeTrim(employeeName(S.actorEmployeeId)).replace(/[\\/:*?"<>|]/g, '_') || 'PC';
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  downloadJsonFile(`光ポータル旧データ_${actor}_${stamp}.json`, localPortalBackupPayload());
+  toast('このPCの旧データを書き出しました');
+}
+
+function mergeLifecycleValue(current = {}, incoming = {}) {
+  const rank = { in_progress: 0, production_complete: 1, delivered: 2 };
+  return (rank[incoming.status] ?? 0) > (rank[current.status] ?? 0)
+    ? { ...incoming }
+    : { ...current };
+}
+
+function mergePortalBackupIntoState(state, backup = {}) {
+  const schedules = Array.isArray(backup.internalSchedules) ? backup.internalSchedules : [];
+  schedules.map(normalizeInternalSchedule).forEach(schedule => {
+    const index = state.internalSchedules.findIndex(item => item.id === schedule.id);
+    if (index < 0) state.internalSchedules.push(schedule);
+    else {
+      const current = state.internalSchedules[index];
+      state.internalSchedules[index] = {
+        ...current,
+        ...schedule,
+        dates: [...new Set([...(current.dates || []), ...(schedule.dates || [])])].sort()
+      };
+    }
+  });
+
+  const notes = backup.stickyNotes && typeof backup.stickyNotes === 'object' ? backup.stickyNotes : {};
+  Object.entries(notes).forEach(([date, value]) => {
+    const incoming = safeTrim(value);
+    if (!incoming) return;
+    const current = safeTrim(state.stickyNotes[date]);
+    if (!current) state.stickyNotes[date] = incoming;
+    else if (current !== incoming) state.stickyNotes[date] = [...new Set([current, incoming])].join(' ／ ');
+  });
+
+  const progress = backup.assigneeProgress && typeof backup.assigneeProgress === 'object' ? backup.assigneeProgress : {};
+  Object.entries(progress).forEach(([projectId, values]) => {
+    const current = state.assigneeProgress[projectId] || {};
+    state.assigneeProgress[projectId] = { ...current };
+    Object.entries(values || {}).forEach(([employeeId, completed]) => {
+      state.assigneeProgress[projectId][employeeId] = current[employeeId] === true || completed === true;
+    });
+  });
+
+  const lifecycle = backup.projectLifecycle && typeof backup.projectLifecycle === 'object' ? backup.projectLifecycle : {};
+  Object.entries(lifecycle).forEach(([projectId, value]) => {
+    state.projectLifecycle[projectId] = mergeLifecycleValue(state.projectLifecycle[projectId] || {}, value || {});
+  });
+}
+
+async function importAndMergePortalBackups(files) {
+  const list = [...files];
+  if (!list.length) return toast('結合するJSONファイルを選択してください。');
+
+  const backups = [];
+  for (const file of list) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error(`${file.name} を読み込めませんでした。`);
+    }
+    if (!parsed || typeof parsed !== 'object') throw new Error(`${file.name} の形式が正しくありません。`);
+    backups.push(parsed);
+  }
+
+  await persistSharedPortalMutation(state => {
+    backups.forEach(backup => mergePortalBackupIntoState(state, backup));
+  });
+
+  renderSchedule();
+  renderCalendar();
+  renderDeadlines();
+  renderInternalScheduleList();
+  toast(`${backups.length}台分のデータを共有へ結合しました`);
+}
+
+async function persistSharedPortalPatch(patch = {}) {
+  return persistSharedPortalMutation(state => {
+    if (Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) state.internalSchedules = patch.internalSchedules.map(normalizeInternalSchedule);
+    if (Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) state.stickyNotes = { ...(patch.stickyNotes || {}) };
+    if (Object.prototype.hasOwnProperty.call(patch, 'assigneeProgress')) {
+      state.assigneeProgress = Object.fromEntries(
+        Object.entries(patch.assigneeProgress || {}).map(([id, value]) => [id, { ...(value || {}) }])
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'projectLifecycle')) {
+      state.projectLifecycle = Object.fromEntries(
+        Object.entries(patch.projectLifecycle || {}).map(([id, value]) => [id, { ...(value || {}) }])
+      );
+    }
   });
 }
 
@@ -376,18 +513,20 @@ function loadInternalTools() {
 }
 
 
-async function saveInternalSchedules() {
+async function saveInternalSchedules(changedSchedule = null) {
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
-  await persistSharedPortalPatch({ internalSchedules: S.internalSchedules });
+  if (changedSchedule) await upsertSharedInternalSchedule(changedSchedule);
+  else await persistSharedPortalPatch({ internalSchedules: S.internalSchedules });
   renderSchedule();
   renderCalendar();
   renderInternalScheduleList();
 }
 
 
-async function saveStickyNotes() {
+async function saveStickyNotes(changedDate = '') {
   localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
-  await persistSharedPortalPatch({ stickyNotes: S.stickyNotes });
+  if (changedDate) await saveSharedStickyNote(changedDate, S.stickyNotes[changedDate] || '');
+  else await persistSharedPortalPatch({ stickyNotes: S.stickyNotes });
   renderSchedule();
 }
 
@@ -680,16 +819,11 @@ function sharedProjectBody(project) {
 async function persistSharedProjectState(projectId) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project) return false;
-
   S.assigneeProgress[projectId] = { ...projectAssigneeProgress(project) };
   S.projectLifecycle[projectId] = { ...projectLifecycle(project) };
   saveAssigneeProgress();
   saveProjectLifecycle();
-
-  await persistSharedPortalPatch({
-    assigneeProgress: S.assigneeProgress,
-    projectLifecycle: S.projectLifecycle
-  });
+  await saveSharedProjectRecord(projectId);
   return true;
 }
 
@@ -1933,7 +2067,7 @@ function bindFixedEvents() {
     const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
     try {
-      await saveInternalSchedules();
+      await saveInternalSchedules(item);
       renderCalendar();
       resetInternalScheduleForm();
       toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
@@ -1953,7 +2087,7 @@ function bindFixedEvents() {
     const previousNotes = { ...S.stickyNotes };
     if (text) S.stickyNotes[date] = text; else delete S.stickyNotes[date];
     try {
-      await saveStickyNotes();
+      await saveStickyNotes(date);
       $('stickyNoteDialog').close();
       toast(text ? 'メモを保存しました' : 'メモを消しました');
     } catch (error) {
@@ -1968,6 +2102,26 @@ function bindFixedEvents() {
   $('calendarNext').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()+1,1); renderCalendar(); };
   $('calendarSearch').oninput = event => { S.calendarQ=event.target.value; renderCalendar(); };
   $('calendarEmployeeFilter').onchange = event => { S.calendarEmployeeId=event.target.value; renderCalendar(); };
+
+  if ($('exportLocalPortalData')) $('exportLocalPortalData').onclick = exportLocalPortalData;
+  if ($('mergePortalBackups')) {
+    $('mergePortalBackups').onclick = async () => {
+      const input = $('portalBackupFiles');
+      const button = $('mergePortalBackups');
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = '共有へ結合中…';
+      try {
+        await importAndMergePortalBackups(input?.files || []);
+        if (input) input.value = '';
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    };
+  }
 }
 
 function bindDelegatedEvents() {
@@ -2033,9 +2187,14 @@ function bindDelegatedEvents() {
         const approved=await confirmDangerAction({title:'社内予定を削除しますか？',message:'登録済みの社内予定から削除します。',detail:item?.title||'',confirmText:'削除する'});
         if (approved) {
           const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
-          S.internalSchedules = S.internalSchedules.filter(x => x.id !== button.dataset.deleteInternal);
+          const deletedId = button.dataset.deleteInternal;
+          S.internalSchedules = S.internalSchedules.filter(x => x.id !== deletedId);
           try {
-            await saveInternalSchedules();
+            localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+            await deleteSharedInternalSchedule(deletedId);
+            renderSchedule();
+            renderCalendar();
+            renderInternalScheduleList();
             toast('社内予定を削除しました');
           } catch (error) {
             S.internalSchedules = previousSchedules;
