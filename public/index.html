@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network β2</title>
+  <title>光ポータル Ver3.2 Network β3</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.1.6">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-beta3">
 </head>
 
 <body>
@@ -468,6 +468,16 @@
         class="master-grid"
         id="masterGrid"
       ></div>
+      <section class="portal-data-management">
+        <h3>共有データ管理</h3>
+        <p class="muted">各PCに残っている旧データを書き出し、複数台分を共有データへ結合できます。</p>
+        <div class="portal-data-actions">
+          <button type="button" id="exportLocalPortalData" class="secondary">このPCの旧データを書き出す</button>
+          <label class="portal-import-label"><span>旧データJSONを選択（複数可）</span><input id="portalBackupFiles" type="file" accept=".json,application/json" multiple></label>
+          <button type="button" id="mergePortalBackups" class="primary">選択したデータを共有へ結合</button>
+        </div>
+        <p class="portal-data-note">社内予定はID単位、メモは日付単位、担当者進捗は案件＋担当者単位、ステータスは案件単位で統合します。</p>
+      </section>
 
     </section>
 
@@ -1024,7 +1034,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-beta2"
+    src="/app.js?v=3.2-network-beta3"
     defer
   ></script>
 
