@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 現場フィードバック反映版 */
+/* 光ポータル Ver3.1 - 空欄登録・複数日付対応版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -146,6 +146,9 @@ function byId(id){ return document.getElementById(id); }
 function isNil(v){ return v===null || v===undefined; }
 
 function safeTrim(v){ return isNil(v) ? '' : String(v).trim(); }
+const API_EMPTY_TEXT = '\u200B';
+function stripApiEmptyText(v){ return String(v ?? '').replace(/\u200B/g, ''); }
+function apiTextOrEmptyPlaceholder(v){ return safeTrim(v) || API_EMPTY_TEXT; }
 async function api(url, options = {}) {
   const response = await fetch(url, {
     method: options.method || 'GET',
@@ -196,6 +199,7 @@ function normalizeInternalSchedule(item = {}) {
     day: Number(item.day || 1),
     month: Number(item.month || 1),
     date: item.date || '',
+    dates: [...new Set((Array.isArray(item.dates) ? item.dates : [item.date]).filter(Boolean))].sort(),
     time: item.time || '',
     note: safeTrim(item.note)
   };
@@ -205,7 +209,7 @@ function internalSchedulesForDate(date) {
   const target = new Date(`${date}T00:00:00`);
   if (Number.isNaN(target.getTime())) return [];
   return S.internalSchedules.map(normalizeInternalSchedule).filter(item => {
-    if (item.type === 'once') return item.date === date;
+    if (item.type === 'once') return item.dates.includes(date);
     if (item.type === 'yearly') {
       return Number(item.month) === target.getMonth() + 1 && Number(item.day) === target.getDate();
     }
@@ -214,7 +218,7 @@ function internalSchedulesForDate(date) {
 }
 
 function internalScheduleTypeLabel(item) {
-  if (item.type === 'once') return item.date ? jp(item.date) : '日付未設定';
+  if (item.type === 'once') return item.dates.length ? item.dates.map(jp).join('・') : '日付未設定';
   if (item.type === 'yearly') return `毎年${Number(item.month) || 1}月${Number(item.day) || 1}日`;
   return `毎月${Number(item.day) || 1}日`;
 }
@@ -231,6 +235,23 @@ function stickyNoteCellHtml(date) {
   return `<button type="button" class="date-memo-button ${text ? 'has-note' : ''}" data-sticky-date="${esc(date)}" title="${esc(label)}" aria-label="${esc(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h11A2.5 2.5 0 0 1 20 7v8a2.5 2.5 0 0 1-2.5 2.5H13l-4.2 3v-3H6.5A2.5 2.5 0 0 1 4 15V7a2.5 2.5 0 0 1 2.5-2.5Z"/><path d="M8 9h8M8 12h6"/></svg><span class="sr-only">${esc(label)}</span></button>`;
 }
 
+function getInternalScheduleDates() {
+  try {
+    const values = JSON.parse($('internalScheduleDates')?.value || '[]');
+    return [...new Set(Array.isArray(values) ? values.filter(Boolean) : [])].sort();
+  } catch { return []; }
+}
+
+function setInternalScheduleDates(dates = []) {
+  const values = [...new Set(dates.filter(Boolean))].sort();
+  if ($('internalScheduleDates')) $('internalScheduleDates').value = JSON.stringify(values);
+  const host = $('internalScheduleDateList');
+  if (!host) return;
+  host.innerHTML = values.length
+    ? values.map(date => `<span class="internal-date-chip"><span>${esc(jp(date))}</span><button type="button" data-remove-internal-date="${esc(date)}" aria-label="${esc(jp(date))}を削除">×</button></span>`).join('')
+    : '<span class="internal-date-empty">日付はまだ追加されていません。</span>';
+}
+
 function renderInternalScheduleList() {
   const host = $('internalScheduleList');
   if (!host) return;
@@ -244,6 +265,7 @@ function resetInternalScheduleForm() {
   $('internalScheduleType').value = 'monthly';
   $('internalScheduleDay').value = '1';
   $('internalScheduleDate').value = '';
+  setInternalScheduleDates([]);
   updateInternalScheduleTypeUi();
 }
 
@@ -262,7 +284,8 @@ function openInternalSchedule(id = '') {
     $('internalScheduleTitle').value = item.title || '';
     $('internalScheduleType').value = item.type === 'once' ? 'once' : 'monthly';
     $('internalScheduleDay').value = String(item.day || 1);
-    $('internalScheduleDate').value = item.date || '';
+    $('internalScheduleDate').value = '';
+    setInternalScheduleDates(item.dates);
     $('internalScheduleTime').value = item.time || '';
     $('internalScheduleNote').value = item.note || '';
     updateInternalScheduleTypeUi();
@@ -1113,7 +1136,7 @@ function render() {
 async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
-    S.projects = (projectData.projects || []).map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
+    S.projects = (projectData.projects || []).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), employeeIds: projectEmployeeIds(project) }));
     S.projects.forEach(project => {
       const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
       const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
@@ -1494,7 +1517,7 @@ function bindFixedEvents() {
     const employeeIds = checkedValues('employeeChoices');
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: safeTrim($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: apiTextOrEmptyPlaceholder($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1548,7 +1571,7 @@ function bindFixedEvents() {
     event.preventDefault();
     if ($('importStep2').hidden) return;
     const rows = [...document.querySelectorAll('[data-import-row]')].filter(row => row.querySelector('.import-select').checked);
-    const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: $('importDisplayName').value.trim(), client: $('importClient').value.trim() };
+    const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: apiTextOrEmptyPlaceholder($('importDisplayName').value), client: $('importClient').value.trim() };
     const projects = rows.map(row => {
       const ids = [...row.querySelectorAll('.employee-multi-dropdown input[type="checkbox"]:checked')].map(input => input.value);
       const employeeId = ids[0] || '';
@@ -1616,21 +1639,34 @@ function bindFixedEvents() {
   $('manageInternalSchedule').onclick = () => openInternalSchedule();
   $('resetInternalSchedule').onclick = resetInternalScheduleForm;
   $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
+  $('addInternalScheduleDate').onclick = () => {
+    const date = $('internalScheduleDate').value;
+    if (!date) return toast('追加する日付を選択してください。');
+    setInternalScheduleDates([...getInternalScheduleDates(), date]);
+    $('internalScheduleDate').value = '';
+  };
+  $('internalScheduleDateList').onclick = event => {
+    const button = event.target.closest('[data-remove-internal-date]');
+    if (!button) return;
+    setInternalScheduleDates(getInternalScheduleDates().filter(date => date !== button.dataset.removeInternalDate));
+  };
   $('internalScheduleForm').onsubmit = event => {
     event.preventDefault();
     const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
+    const dates = type === 'once' ? getInternalScheduleDates() : [];
     const item = normalizeInternalSchedule({
       id: $('internalScheduleId').value || `internal-${Date.now()}`,
       title: safeTrim($('internalScheduleTitle').value),
       type,
       day: type === 'monthly' ? Number($('internalScheduleDay').value) || 1 : 1,
       month: 1,
-      date: type === 'once' ? $('internalScheduleDate').value : '',
+      date: dates[0] || '',
+      dates,
       time: $('internalScheduleTime').value,
       note: safeTrim($('internalScheduleNote').value)
     });
     if (!item.title) return toast('予定名を入力してください。');
-    if (type === 'once' && !item.date) return toast('日付を選択してください。');
+    if (type === 'once' && !item.dates.length) return toast('日付を1つ以上追加してください。');
     const index = S.internalSchedules.findIndex(x => x.id === item.id);
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
     saveInternalSchedules();
