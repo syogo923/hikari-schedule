@@ -2633,3 +2633,19 @@ textarea:focus-visible,
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Ver3.2 Network RC: 材料価格履歴・見積連携 */
+.material-price-source { margin: -4px 0 12px; color: #667085; font-size: 12px; }
+.material-row small { display: block; margin-top: 3px; }
+.material-history-dialog { width: min(680px, calc(100vw - 28px)); }
+.material-history-panel { padding: 22px; }
+.material-history-panel > header,
+.material-history-panel > footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.material-history-panel > footer { justify-content: flex-end; margin-top: 18px; }
+.material-history-list { display: grid; gap: 10px; margin-top: 18px; max-height: min(60vh, 520px); overflow: auto; }
+.material-history-entry { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px; padding: 14px; border: 1px solid #dce3ed; border-radius: 12px; background: #f8fafc; }
+.material-history-date { font-weight: 800; color: #334155; }
+.material-history-main strong { font-size: 17px; }
+.material-history-main p { margin: 5px 0 0; color: #667085; }
+@media (max-width: 560px) { .material-history-entry { grid-template-columns: 1fr; gap: 6px; } }
