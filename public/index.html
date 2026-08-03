@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network Edition</title>
+  <title>光ポータル Ver3.2.1 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-network-final">
+  <link rel="stylesheet" href="/style.css?v=3.2.1-material-shared">
 </head>
 
 <body>
@@ -488,7 +488,8 @@
             <label>価格改定理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー値上げ、仕入先変更、特価終了"></textarea></label>
             <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
           </form>
-          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><div id="materialMasterList" class="material-master-list"></div></section>
+          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><p class="material-share-note">材料名・寸法・価格改定日・仕入先・改定理由・価格履歴は全PCで共有されます。</p>
+          <div id="materialMasterList" class="material-master-list"></div></section>
         </div>
       </section>
     </section>
@@ -1124,7 +1125,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-final"
+    src="/app.js?v=3.2.1-material-shared"
     defer
   ></script>
 
