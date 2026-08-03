@@ -2668,3 +2668,11 @@ textarea:focus-visible,
   background: #eef4ff;
   color: #1849a9;
 }
+
+
+/* Ver3.2 Network RC4: 共有レコード完全分離 */
+.portal-safety-note {
+  border-left-color: #067647;
+  background: #ecfdf3;
+  color: #05603a;
+}
