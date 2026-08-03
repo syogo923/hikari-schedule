@@ -2660,3 +2660,11 @@ textarea:focus-visible,
   color: #7a4d00;
   font-weight: 700;
 }
+
+
+/* Ver3.2 Network RC3: 共有予定・メモ保護 */
+.portal-safety-note {
+  border-left-color: #2f6fed;
+  background: #eef4ff;
+  color: #1849a9;
+}
