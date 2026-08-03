@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 空欄登録・複数日付対応版 */
+/* 光ポータル Ver3.1 - 全PC共有対応版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -28,6 +28,9 @@ const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
 const STORAGE_PROJECT_LIFECYCLE = 'hikariPortal.projectLifecycle.v1';
 const STORAGE_INTERNAL_SCHEDULES = 'hikariPortal.internalSchedules.v1';
 const STORAGE_STICKY_NOTES = 'hikariPortal.stickyNotes.v1';
+const SHARED_PORTAL_SHIP_NO = 'SYS.PORTAL';
+const SHARED_PORTAL_CLIENT = '__HIKARI_PORTAL_SHARED_STATE__';
+const SHARED_PORTAL_SPEC = 'HIKARI_PORTAL_SHARED_STATE_V1';
 const POLL_INTERVAL = 30000;
 
 const S = {
@@ -52,7 +55,8 @@ const S = {
   stickyNotes: {},
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   calendarQ: '',
-  calendarEmployeeId: ''
+  calendarEmployeeId: '',
+  sharedPortalProjectId: ''
 };
 
 const $ = id => byId(id);
@@ -166,6 +170,75 @@ function isBlank(v){ return safeTrim(v)===''; }
 function isPresent(v){ return !isBlank(v); }
 function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
 
+function isSharedPortalProject(project) {
+  return project?.shipNo === SHARED_PORTAL_SHIP_NO &&
+    (project?.client === SHARED_PORTAL_CLIENT || project?.spec === SHARED_PORTAL_SPEC);
+}
+
+function parseSharedPortalState(project) {
+  if (!project) return null;
+  try {
+    const parsed = JSON.parse(String(project.notes || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function applySharedPortalState(project) {
+  const state = parseSharedPortalState(project);
+  if (!state) return false;
+  S.sharedPortalProjectId = project.id || '';
+  if (Array.isArray(state.internalSchedules)) S.internalSchedules = state.internalSchedules.map(normalizeInternalSchedule);
+  if (state.stickyNotes && typeof state.stickyNotes === 'object' && !Array.isArray(state.stickyNotes)) S.stickyNotes = { ...state.stickyNotes };
+  if (state.assigneeProgress && typeof state.assigneeProgress === 'object' && !Array.isArray(state.assigneeProgress)) S.assigneeProgress = { ...state.assigneeProgress };
+  if (state.projectLifecycle && typeof state.projectLifecycle === 'object' && !Array.isArray(state.projectLifecycle)) S.projectLifecycle = { ...state.projectLifecycle };
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  return true;
+}
+
+function sharedPortalStateBody() {
+  return {
+    id: S.sharedPortalProjectId || '',
+    shipNo: SHARED_PORTAL_SHIP_NO,
+    displayName: API_EMPTY_TEXT,
+    productName: API_EMPTY_TEXT,
+    client: SHARED_PORTAL_CLIENT,
+    employeeIds: [],
+    employeeId: '',
+    dueDate: '',
+    notes: JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      internalSchedules: S.internalSchedules,
+      stickyNotes: S.stickyNotes,
+      assigneeProgress: S.assigneeProgress,
+      projectLifecycle: S.projectLifecycle
+    }),
+    quantity: 0,
+    spec: SHARED_PORTAL_SPEC,
+    completed: false,
+    ...actorPayload()
+  };
+}
+
+function hasLocalSharedPortalState() {
+  return S.internalSchedules.length > 0 ||
+    Object.keys(S.stickyNotes).length > 0 ||
+    Object.keys(S.assigneeProgress).length > 0 ||
+    Object.keys(S.projectLifecycle).length > 0;
+}
+
+async function persistSharedPortalState() {
+  const method = S.sharedPortalProjectId ? 'PUT' : 'POST';
+  await api(API.projects, { method, body: sharedPortalStateBody() });
+  if (!S.sharedPortalProjectId) await load({ silent: true });
+  return true;
+}
+
 function loadInternalTools() {
   try {
     const schedules = JSON.parse(localStorage.getItem(STORAGE_INTERNAL_SCHEDULES) || '[]');
@@ -177,15 +250,17 @@ function loadInternalTools() {
   } catch { S.stickyNotes = {}; }
 }
 
-function saveInternalSchedules() {
+async function saveInternalSchedules() {
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  await persistSharedPortalState();
   renderSchedule();
   renderCalendar();
   renderInternalScheduleList();
 }
 
-function saveStickyNotes() {
+async function saveStickyNotes() {
   localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  await persistSharedPortalState();
   renderSchedule();
 }
 
@@ -479,10 +554,11 @@ async function persistSharedProjectState(projectId) {
   if (!project) return false;
   const progress = projectAssigneeProgress(project);
   const lifecycle = projectLifecycle(project);
-  project.assigneeProgress = { ...progress };
-  project.lifecycle = { ...lifecycle };
-  project.portalState = { assigneeProgress: { ...progress }, lifecycle: { ...lifecycle } };
-  await api(API.projects, { method: 'PUT', body: sharedProjectBody(project) });
+  S.assigneeProgress[projectId] = { ...progress };
+  S.projectLifecycle[projectId] = { ...lifecycle };
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+  await persistSharedPortalState();
   return true;
 }
 
@@ -799,7 +875,7 @@ function lifecycleDetailHtml(project, effect = '') {
     <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
     ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">最後の担当者が完了すると、自動で「製作完了」に切り替わります。</p>' : ''}
     ${actions ? `<div class="project-lifecycle-actions">${actions}</div>` : ''}
-    <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
+    <p class="project-lifecycle-storage-note">ステータスは共有保存され、ほかのPCにも反映されます。</p>
   </section>`;
 }
 
@@ -1136,17 +1212,21 @@ function render() {
 async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
-    S.projects = (projectData.projects || []).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), productName: stripApiEmptyText(project.productName), employeeIds: projectEmployeeIds(project) }));
+    const allProjects = projectData.projects || [];
+    const sharedPortalProject = allProjects.find(isSharedPortalProject) || null;
+    S.projects = allProjects.filter(project => !isSharedPortalProject(project)).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), productName: stripApiEmptyText(project.productName), employeeIds: projectEmployeeIds(project) }));
     S.projects.forEach(project => {
       const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
       const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
       if (remoteProgress && typeof remoteProgress === 'object') S.assigneeProgress[project.id] = { ...remoteProgress };
       if (remoteLifecycle && typeof remoteLifecycle === 'object') S.projectLifecycle[project.id] = { ...remoteLifecycle };
     });
+    if (sharedPortalProject) applySharedPortalState(sharedPortalProject);
     saveAssigneeProgress();
     saveProjectLifecycle();
     S.masters = masterData.masters || S.masters;
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
+    if (!sharedPortalProject && hasLocalSharedPortalState()) await persistSharedPortalState();
     render();
     requestAnimationFrame(() => scrollScheduleToToday());
     updateActorStatus();
@@ -1368,6 +1448,7 @@ function renderHistory() {
   const list = S.history.filter(item => {
     const action = historyAction(item);
     const project = historyProject(item);
+    if (isSharedPortalProject(project)) return false;
     const text = [project.shipNo, project.displayName, item.summary, historyActorName(item)].join(' ').toLowerCase();
     return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
   });
@@ -1650,7 +1731,7 @@ function bindFixedEvents() {
     if (!button) return;
     setInternalScheduleDates(getInternalScheduleDates().filter(date => date !== button.dataset.removeInternalDate));
   };
-  $('internalScheduleForm').onsubmit = event => {
+  $('internalScheduleForm').onsubmit = async event => {
     event.preventDefault();
     const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
     const dates = type === 'once' ? getInternalScheduleDates() : [];
@@ -1669,15 +1750,15 @@ function bindFixedEvents() {
     if (type === 'once' && !item.dates.length) return toast('日付を1つ以上追加してください。');
     const index = S.internalSchedules.findIndex(x => x.id === item.id);
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
-    saveInternalSchedules();
+    await saveInternalSchedules();
     renderCalendar();
     resetInternalScheduleForm();
     toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
   };
-  $('stickyNoteForm').onsubmit = event => {
+  $('stickyNoteForm').onsubmit = async event => {
     event.preventDefault(); const date=$('stickyNoteDate').value, text=safeTrim($('stickyNoteText').value);
     if (text) S.stickyNotes[date]=text; else delete S.stickyNotes[date];
-    saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'メモを保存しました':'メモを消しました');
+    await saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'メモを保存しました':'メモを消しました');
   };
   $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
   $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
@@ -1747,7 +1828,7 @@ function bindDelegatedEvents() {
       else if (button.dataset.deleteInternal) {
         const item=S.internalSchedules.find(x=>x.id===button.dataset.deleteInternal);
         const approved=await confirmDangerAction({title:'社内予定を削除しますか？',message:'登録済みの社内予定から削除します。',detail:item?.title||'',confirmText:'削除する'});
-        if(approved){S.internalSchedules=S.internalSchedules.filter(x=>x.id!==button.dataset.deleteInternal);saveInternalSchedules();toast('社内予定を削除しました');}
+        if(approved){S.internalSchedules=S.internalSchedules.filter(x=>x.id!==button.dataset.deleteInternal);await saveInternalSchedules();toast('社内予定を削除しました');}
       }
       else if (button.dataset.copyProject) {
         const source=S.projects.find(x=>x.id===button.dataset.copyProject);
