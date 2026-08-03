@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β8 - 品質向上版 */
+/* 光ポータル Ver3.2 Network Edition RC - 材料価格履歴・見積連携 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -2730,7 +2730,26 @@ function bindDelegatedEvents() {
       }
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
+      else if (button.dataset.materialHistory) { openMaterialHistory(button.dataset.materialHistory); }
+      else if (button.dataset.materialEdit) {
+        const rawItem = S.materials.find(x => x.id === button.dataset.materialEdit);
+        if (rawItem) {
+          const item = normalizeMaterial(rawItem);
+          $('materialMasterId').value = item.id;
+          $('materialMasterName').value = item.name;
+          $('materialMasterHeight').value = item.height;
+          $('materialMasterHeightUnit').value = item.heightUnit;
+          $('materialMasterWidth').value = item.width;
+          $('materialMasterWidthUnit').value = item.widthUnit;
+          $('materialMasterPrice').value = item.price;
+          $('materialMasterEffectiveDate').value = item.effectiveDate || todayIsoDate();
+          $('materialMasterSupplier').value = item.supplier || '';
+          $('materialMasterChangeReason').value = '';
+          $('cancelMaterialEdit').hidden = false;
+          switchView('calculator');
+          switchCalculatorTab('materials');
+        }
+      }
       else if (button.dataset.materialDelete) {
         const item = S.materials.find(x => x.id === button.dataset.materialDelete);
         const approved = await confirmDangerAction({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する' });
@@ -2749,10 +2768,103 @@ function bindDelegatedEvents() {
   });
 }
 
+
+function todayIsoDate() {
+  return fd(new Date());
+}
+
+function normalizeMaterialHistoryEntry(entry = {}) {
+  return {
+    effectiveDate: safeTrim(entry.effectiveDate) || todayIsoDate(),
+    price: Number(entry.price) || 0,
+    supplier: safeTrim(entry.supplier),
+    reason: safeTrim(entry.reason),
+    recordedAt: safeTrim(entry.recordedAt) || new Date().toISOString(),
+    recordedBy: safeTrim(entry.recordedBy)
+  };
+}
+
+function normalizeMaterial(item = {}) {
+  const history = Array.isArray(item.priceHistory)
+    ? item.priceHistory.map(normalizeMaterialHistoryEntry)
+    : [];
+  const currentDate = safeTrim(item.effectiveDate) || todayIsoDate();
+  const currentPrice = Number(item.price) || 0;
+
+  if (!history.length) {
+    history.push(normalizeMaterialHistoryEntry({
+      effectiveDate: currentDate,
+      price: currentPrice,
+      supplier: item.supplier,
+      reason: item.changeReason || '既存価格',
+      recordedAt: item.updatedAt || new Date().toISOString()
+    }));
+  }
+
+  history.sort((a, b) =>
+    String(a.effectiveDate).localeCompare(String(b.effectiveDate)) ||
+    String(a.recordedAt).localeCompare(String(b.recordedAt))
+  );
+
+  const latest = history[history.length - 1];
+  return {
+    ...item,
+    price: Number(latest?.price ?? currentPrice),
+    effectiveDate: latest?.effectiveDate || currentDate,
+    supplier: safeTrim(latest?.supplier || item.supplier),
+    changeReason: safeTrim(latest?.reason || item.changeReason),
+    priceHistory: history
+  };
+}
+
+function materialPriceAt(item, targetDate = '') {
+  const material = normalizeMaterial(item);
+  const date = safeTrim(targetDate) || todayIsoDate();
+  const applicable = material.priceHistory
+    .filter(entry => entry.effectiveDate <= date)
+    .sort((a, b) =>
+      String(a.effectiveDate).localeCompare(String(b.effectiveDate)) ||
+      String(a.recordedAt).localeCompare(String(b.recordedAt))
+    );
+  return applicable.length ? applicable[applicable.length - 1] : material.priceHistory[0];
+}
+
+function openMaterialHistory(id) {
+  const item = S.materials.find(material => material.id === id);
+  if (!item) return;
+  const material = normalizeMaterial(item);
+  $('materialHistoryTitle').textContent = `${material.name} の価格履歴`;
+  $('materialHistoryList').innerHTML = [...material.priceHistory]
+    .sort((a, b) => String(b.effectiveDate).localeCompare(String(a.effectiveDate)))
+    .map(entry => `<article class="material-history-entry">
+      <div class="material-history-date">${esc(entry.effectiveDate)}</div>
+      <div class="material-history-main">
+        <strong>${yen(Number(entry.price), 0)}</strong>
+        <p>${entry.supplier ? `仕入先：${esc(entry.supplier)}` : '仕入先：—'}</p>
+        <p>${entry.reason ? `理由：${esc(entry.reason)}` : '理由：—'}</p>
+      </div>
+    </article>`).join('') || '<div class="notice">価格履歴はありません。</div>';
+  $('materialHistoryDialog').showModal();
+}
+
+function updateMaterialPriceFromSelection() {
+  const id = $('areaMaterialSelect')?.value || '';
+  const item = S.materials.find(material => material.id === id);
+  if (!item) return;
+  const targetDate = $('materialPriceDate')?.value || todayIsoDate();
+  const entry = materialPriceAt(item, targetDate);
+  $('materialPrice').value = entry?.price ?? '';
+  if ($('materialPriceSource')) {
+    $('materialPriceSource').textContent =
+      `${entry?.effectiveDate || '—'}適用の価格${entry?.supplier ? ` ／ ${entry.supplier}` : ''}を使用しています。`;
+  }
+}
+
 function loadMaterials() {
   try { S.materials = JSON.parse(localStorage.getItem(STORAGE_MATERIALS) || '[]'); }
   catch { S.materials = []; }
   if (!Array.isArray(S.materials)) S.materials = [];
+  S.materials = S.materials.map(normalizeMaterial);
 }
 
 function saveMaterials() {
@@ -2779,23 +2891,44 @@ function renderMaterialMaster() {
   const select = $('areaMaterialSelect');
   if (select) {
     const current = select.value;
-    select.innerHTML = '<option value="">選択しない</option>' + S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    select.innerHTML = '<option value="">選択しない</option>' +
+      S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
     select.value = S.materials.some(item => item.id === current) ? current : '';
   }
   const list = $('materialMasterList');
   if (!list) return;
-  list.innerHTML = S.materials.length ? S.materials.map(item => `<article class="material-row"><div><strong>${esc(item.name)}</strong><span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span><small>${yen(Number(item.price), 0)}</small></div><div><button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button><button type="button" data-material-edit="${esc(item.id)}">編集</button><button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">材料はまだ登録されていません。</div>';
+  list.innerHTML = S.materials.length
+    ? S.materials.map(rawItem => {
+        const item = normalizeMaterial(rawItem);
+        return `<article class="material-row">
+          <div>
+            <strong>${esc(item.name)}</strong>
+            <span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span>
+            <small>${yen(Number(item.price), 0)} ／ 適用開始 ${esc(item.effectiveDate || '—')}</small>
+            ${item.supplier ? `<small>仕入先：${esc(item.supplier)}</small>` : ''}
+          </div>
+          <div>
+            <button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button>
+            <button type="button" class="secondary" data-material-history="${esc(item.id)}">価格履歴 ${item.priceHistory.length}件</button>
+            <button type="button" data-material-edit="${esc(item.id)}">編集</button>
+            <button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button>
+          </div>
+        </article>`;
+      }).join('')
+    : '<div class="notice">材料はまだ登録されていません。</div>';
 }
 
 function applyMaterial(id) {
-  const item = S.materials.find(x => x.id === id);
-  if (!item) return;
+  const rawItem = S.materials.find(x => x.id === id);
+  if (!rawItem) return;
+  const item = normalizeMaterial(rawItem);
   $('areaMaterialSelect').value = item.id;
   $('materialHeight').value = item.height;
   $('materialHeightUnit').value = item.heightUnit;
   $('materialWidth').value = item.width;
   $('materialWidthUnit').value = item.widthUnit;
-  $('materialPrice').value = item.price;
+  if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
+  updateMaterialPriceFromSelection();
 }
 
 function switchCalculatorTab(tab) {
@@ -2806,7 +2939,10 @@ function switchCalculatorTab(tab) {
 
 function bindCalculatorEvents() {
   document.querySelectorAll('[data-calc-tab]').forEach(button => button.onclick = () => switchCalculatorTab(button.dataset.calcTab));
-  $('areaMaterialSelect').onchange = event => { if (event.target.value) applyMaterial(event.target.value); };
+  $('areaMaterialSelect').onchange = event => {
+    if (event.target.value) applyMaterial(event.target.value);
+  };
+  $('materialPriceDate').onchange = updateMaterialPriceFromSelection;
   $('areaCalculatorForm').onsubmit = event => {
     event.preventDefault();
     const mh = toMm($('materialHeight').value, $('materialHeightUnit').value);
@@ -2830,12 +2966,60 @@ function bindCalculatorEvents() {
     const cost=price/count; $('yieldCostResult').textContent=yen(cost); $('yieldCostCeil').textContent=yen(Math.ceil(cost),0); $('yieldFormulaResult').textContent=`${price.toLocaleString()} ÷ ${count.toLocaleString()}`;
   };
   $('materialMasterForm').onsubmit = event => {
-    event.preventDefault(); const id=$('materialMasterId').value || `mat-${Date.now()}`;
-    const item={id,name:$('materialMasterName').value.trim(),height:Number($('materialMasterHeight').value),heightUnit:$('materialMasterHeightUnit').value,width:Number($('materialMasterWidth').value),widthUnit:$('materialMasterWidthUnit').value,price:Number($('materialMasterPrice').value)};
-    if (!item.name || !(item.height>0) || !(item.width>0) || !(item.price>=0)) return toast('材料情報を正しく入力してください。');
-    const index=S.materials.findIndex(x=>x.id===id); if(index>=0) S.materials[index]=item; else S.materials.push(item); saveMaterials(); event.target.reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; toast(index>=0?'材料を更新しました':'材料を登録しました');
+    event.preventDefault();
+    const id = $('materialMasterId').value || `mat-${Date.now()}`;
+    const index = S.materials.findIndex(item => item.id === id);
+    const previous = index >= 0 ? normalizeMaterial(S.materials[index]) : null;
+    const price = Number($('materialMasterPrice').value);
+    const effectiveDate = $('materialMasterEffectiveDate').value;
+    const supplier = safeTrim($('materialMasterSupplier').value);
+    const reason = safeTrim($('materialMasterChangeReason').value);
+
+    if (!safeTrim($('materialMasterName').value) ||
+        !(Number($('materialMasterHeight').value) > 0) ||
+        !(Number($('materialMasterWidth').value) > 0) ||
+        !(price >= 0) || !effectiveDate) {
+      return toast('材料情報と適用開始日を正しく入力してください。');
+    }
+
+    const history = previous ? [...previous.priceHistory] : [];
+    const latest = history[history.length - 1];
+    if (!latest || Number(latest.price) !== price || latest.effectiveDate !== effectiveDate ||
+        safeTrim(latest.supplier) !== supplier) {
+      history.push(normalizeMaterialHistoryEntry({
+        effectiveDate, price, supplier,
+        reason: reason || (previous ? '価格変更' : '新規登録'),
+        recordedAt: new Date().toISOString(),
+        recordedBy: employeeName(S.actorEmployeeId)
+      }));
+    }
+
+    const item = normalizeMaterial({
+      id,
+      name: safeTrim($('materialMasterName').value),
+      height: Number($('materialMasterHeight').value),
+      heightUnit: $('materialMasterHeightUnit').value,
+      width: Number($('materialMasterWidth').value),
+      widthUnit: $('materialMasterWidthUnit').value,
+      price, effectiveDate, supplier, changeReason: reason, priceHistory: history
+    });
+
+    if (index >= 0) S.materials[index] = item; else S.materials.push(item);
+    saveMaterials();
+    event.target.reset();
+    $('materialMasterId').value = '';
+    $('materialMasterEffectiveDate').value = todayIsoDate();
+    $('cancelMaterialEdit').hidden = true;
+    toast(index >= 0 ? '材料と価格履歴を更新しました' : '材料を登録しました');
   };
-  $('cancelMaterialEdit').onclick=()=>{ $('materialMasterForm').reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; };
+  $('cancelMaterialEdit').onclick = () => {
+    $('materialMasterForm').reset();
+    $('materialMasterId').value = '';
+    $('materialMasterEffectiveDate').value = todayIsoDate();
+    $('cancelMaterialEdit').hidden = true;
+  };
+  if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
+  if (!$('materialMasterEffectiveDate').value) $('materialMasterEffectiveDate').value = todayIsoDate();
 }
 
 async function init() {
