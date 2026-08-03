@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition RC2 - 緊急データ保護修正版 */
+/* 光ポータル Ver3.2 Network Edition RC3 - 共有予定・メモ保護修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -1020,10 +1020,80 @@ async function restoreMissingProjects(missingProjects = []) {
 }
 
 
+
+function sharedScheduleMemoSnapshot(sharedProject = null) {
+  const parsed = parseSharedPortalState(sharedProject) || {};
+  return {
+    internalSchedules: Array.isArray(parsed.internalSchedules)
+      ? parsed.internalSchedules.map(normalizeInternalSchedule)
+      : S.internalSchedules.map(normalizeInternalSchedule),
+    stickyNotes:
+      parsed.stickyNotes &&
+      typeof parsed.stickyNotes === 'object' &&
+      !Array.isArray(parsed.stickyNotes)
+        ? { ...parsed.stickyNotes }
+        : { ...S.stickyNotes }
+  };
+}
+
+function sharedScheduleMemoEqual(left = {}, right = {}) {
+  const a = {
+    internalSchedules: Array.isArray(left.internalSchedules)
+      ? left.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes: left.stickyNotes && typeof left.stickyNotes === 'object'
+      ? left.stickyNotes
+      : {}
+  };
+  const b = {
+    internalSchedules: Array.isArray(right.internalSchedules)
+      ? right.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes: right.stickyNotes && typeof right.stickyNotes === 'object'
+      ? right.stickyNotes
+      : {}
+  };
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+async function ensureSharedScheduleMemoPreserved(snapshot, currentProjects = []) {
+  const currentShared = currentProjects.find(isSharedPortalProject) || null;
+  const currentState = sharedScheduleMemoSnapshot(currentShared);
+
+  if (currentShared && sharedScheduleMemoEqual(snapshot, currentState)) {
+    S.sharedPortalProjectId = String(currentShared.id || '');
+    return currentShared;
+  }
+
+  // ステータス更新によって共有管理レコードが消えた・空になった場合は、
+  // 更新前に退避した社内予定とメモを即座に復元する。
+  S.sharedPortalProjectId = currentShared?.id ? String(currentShared.id) : '';
+  await api(API.projects, {
+    method: currentShared ? 'PUT' : 'POST',
+    body: sharedPortalStateBody(snapshot)
+  });
+
+  const verified = await api(API.projects);
+  const verifiedShared = (verified.projects || []).find(isSharedPortalProject) || null;
+  const verifiedState = sharedScheduleMemoSnapshot(verifiedShared);
+
+  if (!verifiedShared || !sharedScheduleMemoEqual(snapshot, verifiedState)) {
+    throw new Error('社内予定・メモの共有データを保護できませんでした。');
+  }
+
+  S.sharedPortalProjectId = String(verifiedShared.id || '');
+  applySharedPortalState(verifiedShared);
+  return verifiedShared;
+}
+
+
 async function persistSharedProjectState(projectId) {
   const latestData = await api(API.projects);
-  const latestProjects = (latestData.projects || [])
-    .filter(project => !isSharedPortalProject(project));
+  const allLatestProjects = latestData.projects || [];
+  const latestSharedProject = allLatestProjects.find(isSharedPortalProject) || null;
+  const protectedSharedState = sharedScheduleMemoSnapshot(latestSharedProject);
+
+  const latestProjects = allLatestProjects.filter(project => !isSharedPortalProject(project));
   const latestProject = latestProjects.find(project => project.id === projectId);
 
   if (!latestProject) {
@@ -1053,7 +1123,17 @@ async function persistSharedProjectState(projectId) {
     body: sharedProjectBody(target)
   });
 
-  const confirmedData = await api(API.projects);
+  let confirmedData = await api(API.projects);
+
+  // 案件ステータス更新で共有管理レコードが消えるAPI挙動に備え、
+  // 社内予定と日付メモを更新前の内容へ復元・検証する。
+  await ensureSharedScheduleMemoPreserved(
+    protectedSharedState,
+    confirmedData.projects || []
+  );
+
+  // 復元後の最終状態を改めて取得する。
+  confirmedData = await api(API.projects);
   const confirmedProjects = (confirmedData.projects || [])
     .filter(project => !isSharedPortalProject(project));
   const confirmedIds = new Set(confirmedProjects.map(project => project.id));
