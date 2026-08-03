@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition β7 - 検索・絞り込み強化 */
+/* 光ポータル Ver3.2 Network Edition β8 - 品質向上版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -32,6 +32,9 @@ const SHARED_PORTAL_SHIP_NO = 'SYS.PORTAL';
 const SHARED_PORTAL_CLIENT = '__HIKARI_PORTAL_SHARED_STATE__';
 const SHARED_PORTAL_SPEC = 'HIKARI_PORTAL_SHARED_STATE_V1';
 const POLL_INTERVAL = 10000;
+const API_TIMEOUT_MS = 15000;
+const API_GET_RETRY_COUNT = 1;
+const SEARCH_DEBOUNCE_MS = 160;
 
 const S = {
   projects: [],
@@ -78,9 +81,12 @@ function toast(message) {
   const node = $('toast');
   if (!node) return;
   node.textContent = message;
+  node.setAttribute('role', 'status');
+  node.setAttribute('aria-live', 'polite');
   node.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => node.classList.remove('show'), 2400);
+  const duration = String(message || '').length > 36 ? 4200 : 2600;
+  toast.timer = setTimeout(() => node.classList.remove('show'), duration);
 }
 
 function portalConfirm({
@@ -163,18 +169,62 @@ const API_EMPTY_TEXT = '\u200B';
 function stripApiEmptyText(v){ return String(v ?? '').replace(/\u200B/g, ''); }
 function apiTextOrEmptyPlaceholder(v){ return safeTrim(v) || API_EMPTY_TEXT; }
 async function api(url, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers: options.body ? { 'content-type': 'application/json' } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    cache: 'no-store'
-  });
-  let data = {};
-  try { data = await response.json(); } catch {}
-  if (!response.ok) throw new Error(data.error || '通信に失敗しました。');
-  return data;
+  const method = options.method || 'GET';
+  const maxAttempts = method === 'GET' ? API_GET_RETRY_COUNT + 1 : 1;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: options.body ? { 'content-type': 'application/json' } : undefined,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        cache: 'no-store',
+        signal: controller.signal
+      });
+
+      let data = {};
+      try { data = await response.json(); } catch {}
+
+      if (!response.ok) {
+        const error = new Error(data.error || `通信に失敗しました。（${response.status}）`);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        method === 'GET' &&
+        attempt < maxAttempts &&
+        (error.name === 'AbortError' || !error.status || error.status >= 500);
+
+      if (!retryable) {
+        if (error.name === 'AbortError') {
+          throw new Error('通信がタイムアウトしました。もう一度お試しください。');
+        }
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('通信に失敗しました。');
 }
 // ===== Common Utility Helpers =====
+function debounce(fn, wait = SEARCH_DEBOUNCE_MS) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 function isBlank(v){ return safeTrim(v)===''; }
 function isPresent(v){ return !isBlank(v); }
 function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
@@ -2133,6 +2183,10 @@ async function autoSyncRemoteChanges() {
 
 async function pollRevision() {
   if (document.hidden || S.autoSyncing) return;
+  if (!navigator.onLine) {
+    updateSyncStatus('通信エラー', 'error');
+    return;
+  }
 
   try {
     const data = await api(`${API.projects}?mode=status`);
@@ -2171,6 +2225,16 @@ function startPolling() {
       if (!document.hidden) pollRevision();
     });
     window.addEventListener('focus', () => pollRevision());
+    window.addEventListener('pagehide', () => {
+      clearInterval(S.pollTimer);
+      S.pollTimer = null;
+    });
+    window.addEventListener('pageshow', () => {
+      if (!S.pollTimer) {
+        S.pollTimer = setInterval(pollRevision, POLL_INTERVAL);
+        pollRevision();
+      }
+    });
     startPolling.visibilityBound = true;
   }
 }
@@ -2406,7 +2470,11 @@ function bindFixedEvents() {
   window.addEventListener('online', updateNetworkStatus);
   window.addEventListener('offline', updateNetworkStatus);
 
-  $('search').oninput = event => { S.q = event.target.value; renderSchedule(); renderDeadlines(); };
+  $('search').oninput = debounce(event => {
+    S.q = event.target.value;
+    renderSchedule();
+    renderDeadlines();
+  });
   $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('refreshHistory').onclick = loadHistory;
@@ -2489,7 +2557,10 @@ function bindFixedEvents() {
   $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
   $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
   $('calendarNext').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()+1,1); renderCalendar(); };
-  $('calendarSearch').oninput = event => { S.calendarQ=event.target.value; renderCalendar(); };
+  $('calendarSearch').oninput = debounce(event => {
+    S.calendarQ = event.target.value;
+    renderCalendar();
+  });
   $('calendarEmployeeFilter').onchange = event => {
     S.calendarEmployeeId = event.target.value;
     renderCalendar();
