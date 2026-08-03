@@ -1136,7 +1136,7 @@ function render() {
 async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
-    S.projects = (projectData.projects || []).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), employeeIds: projectEmployeeIds(project) }));
+    S.projects = (projectData.projects || []).map(project => ({ ...project, displayName: stripApiEmptyText(project.displayName), productName: stripApiEmptyText(project.productName), employeeIds: projectEmployeeIds(project) }));
     S.projects.forEach(project => {
       const remoteProgress = project.portalState?.assigneeProgress || project.assigneeProgress;
       const remoteLifecycle = project.portalState?.lifecycle || project.lifecycle;
@@ -1517,7 +1517,7 @@ function bindFixedEvents() {
     const employeeIds = checkedValues('employeeChoices');
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: apiTextOrEmptyPlaceholder($('displayName').value), productName: existing?.productName || '', client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: apiTextOrEmptyPlaceholder($('displayName').value), productName: apiTextOrEmptyPlaceholder(existing?.productName || ''), client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1575,7 +1575,7 @@ function bindFixedEvents() {
     const projects = rows.map(row => {
       const ids = [...row.querySelectorAll('.employee-multi-dropdown input[type="checkbox"]:checked')].map(input => input.value);
       const employeeId = ids[0] || '';
-      return { ...common, productName: row.dataset.importProduct || '', quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
+      return { ...common, productName: apiTextOrEmptyPlaceholder(row.dataset.importProduct || ''), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
     });
     if (!projects.length) { $('importError').textContent = '登録する明細を選択してください。'; return; }
     $('importError').textContent = '';
