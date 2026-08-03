@@ -2649,3 +2649,14 @@ textarea:focus-visible,
 .material-history-main strong { font-size: 17px; }
 .material-history-main p { margin: 5px 0 0; color: #667085; }
 @media (max-width: 560px) { .material-history-entry { grid-template-columns: 1fr; gap: 6px; } }
+
+
+/* Ver3.2 Network RC2: 緊急データ保護 */
+.portal-safety-note {
+  padding: 10px 12px;
+  border-left: 4px solid #d99a16;
+  border-radius: 6px;
+  background: #fff8e8;
+  color: #7a4d00;
+  font-weight: 700;
+}
