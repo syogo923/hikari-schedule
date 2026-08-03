@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2 Network Edition 正式版 */
+/* 光ポータル Ver3.2.1 Network Edition - 材料マスタ共有版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -34,6 +34,9 @@ const SHARED_PORTAL_SPEC = 'HIKARI_PORTAL_SHARED_STATE_V1';
 const STATUS_SHARED_SHIP_NO = 'SYS.PORTAL.STATUS';
 const STATUS_SHARED_CLIENT = '__HIKARI_PORTAL_STATUS_STATE__';
 const STATUS_SHARED_SPEC = 'HIKARI_PORTAL_STATUS_STATE_V1';
+const MATERIAL_SHARED_SHIP_NO = 'SYS.PORTAL.MATERIAL';
+const MATERIAL_SHARED_CLIENT = '__HIKARI_PORTAL_MATERIAL_STATE__';
+const MATERIAL_SHARED_SPEC = 'HIKARI_PORTAL_MATERIAL_STATE_V1';
 const POLL_INTERVAL = 10000;
 const API_TIMEOUT_MS = 15000;
 const API_GET_RETRY_COUNT = 1;
@@ -67,6 +70,7 @@ const S = {
   deadlineStatusFilter: '',
   sharedPortalProjectId: '',
   statusSharedProjectId: '',
+  materialSharedProjectId: '',
   autoSyncing: false,
   sharedWritePending: 0,
   lastAutoSyncAt: ''
@@ -244,8 +248,19 @@ function isStatusSharedProject(project) {
     (project?.client === STATUS_SHARED_CLIENT || project?.spec === STATUS_SHARED_SPEC);
 }
 
+
+function isMaterialSharedProject(project) {
+  return project?.shipNo === MATERIAL_SHARED_SHIP_NO &&
+    (
+      project?.client === MATERIAL_SHARED_CLIENT ||
+      project?.spec === MATERIAL_SHARED_SPEC
+    );
+}
+
 function isSharedPortalProject(project) {
-  return isScheduleMemoSharedProject(project) || isStatusSharedProject(project);
+  return isScheduleMemoSharedProject(project) ||
+    isStatusSharedProject(project) ||
+    isMaterialSharedProject(project);
 }
 
 function parseSharedPortalState(project) {
@@ -2081,9 +2096,11 @@ async function load({ silent = false } = {}) {
     const allProjects = projectData.projects || [];
     const sharedPortalProject = allProjects.find(isScheduleMemoSharedProject) || null;
     const statusSharedProject = allProjects.find(isStatusSharedProject) || null;
+    const materialSharedProject = allProjects.find(isMaterialSharedProject) || null;
 
     S.sharedPortalProjectId = sharedPortalProject?.id || '';
     S.statusSharedProjectId = statusSharedProject?.id || '';
+    S.materialSharedProjectId = materialSharedProject?.id || '';
 
     S.projects = allProjects
       .filter(project => !isSharedPortalProject(project))
@@ -2097,6 +2114,12 @@ async function load({ silent = false } = {}) {
     // 社内予定とメモは専用共有レコードから読み込む。
     if (sharedPortalProject) {
       applySharedPortalState(sharedPortalProject);
+    }
+
+    // 材料マスタと価格履歴は専用共有レコードから読み込む。
+    // 共有レコードがまだない場合だけ、このPCの旧ローカル材料を維持する。
+    if (materialSharedProject) {
+      applyMaterialSharedState(materialSharedProject);
     }
 
     // RC5では進捗・ステータスを各案件本体から読み込む。
@@ -3155,7 +3178,21 @@ function bindDelegatedEvents() {
       else if (button.dataset.materialDelete) {
         const item = S.materials.find(x => x.id === button.dataset.materialDelete);
         const approved = await confirmDangerAction({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する' });
-        if (approved) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+        if (approved) {
+          const previousMaterials = S.materials.map(material => normalizeMaterial(material));
+          S.materials = S.materials.filter(
+            x => x.id !== button.dataset.materialDelete
+          );
+          try {
+            await saveMaterials();
+            toast('材料を全PCから削除しました');
+          } catch (error) {
+            S.materials = previousMaterials;
+            localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+            renderMaterialMaster();
+            toast(`材料マスタの共有削除に失敗しました：${error.message}`);
+          }
+        }
       }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
@@ -3262,6 +3299,125 @@ function updateMaterialPriceFromSelection() {
   }
 }
 
+
+function parseMaterialSharedState(project) {
+  if (!project) return null;
+  try {
+    const parsed = JSON.parse(String(project.notes || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMaterialSharedState(state = {}) {
+  return {
+    version: 1,
+    updatedAt: safeTrim(state.updatedAt),
+    materials: Array.isArray(state.materials)
+      ? state.materials.map(normalizeMaterial)
+      : []
+  };
+}
+
+function applyMaterialSharedState(project) {
+  const state = normalizeMaterialSharedState(
+    parseMaterialSharedState(project) || {}
+  );
+  S.materialSharedProjectId = project?.id || '';
+  S.materials = state.materials;
+  localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+  renderMaterialMaster();
+  return true;
+}
+
+function materialSharedStateBody(state = {}) {
+  const employeeId = sharedPortalEmployeeId();
+  if (!employeeId) {
+    throw new Error('材料マスタの共有保存には社員マスタが1名以上必要です。');
+  }
+
+  const normalized = normalizeMaterialSharedState(state);
+  const payload = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    materials: normalized.materials
+  };
+
+  return {
+    id: S.materialSharedProjectId || '',
+    shipNo: MATERIAL_SHARED_SHIP_NO,
+    displayName: '材料マスタ共有設定',
+    productName: '材料・価格履歴共有データ',
+    client: MATERIAL_SHARED_CLIENT,
+    employeeIds: [employeeId],
+    employeeId,
+    dueDate: '2099-12-31',
+    notes: JSON.stringify(payload),
+    quantity: 0,
+    spec: MATERIAL_SHARED_SPEC,
+    completed: false,
+    ...actorPayload()
+  };
+}
+
+async function persistMaterialSharedState(materials = S.materials) {
+  return queueSharedPortalWrite(async () => {
+    const before = await api(API.projects);
+    const sharedProject =
+      (before.projects || []).find(isMaterialSharedProject) || null;
+
+    if (sharedProject?.id) {
+      S.materialSharedProjectId = String(sharedProject.id);
+    }
+
+    const state = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      materials: materials.map(normalizeMaterial)
+    };
+
+    const result = await api(API.projects, {
+      method: sharedProject ? 'PUT' : 'POST',
+      body: materialSharedStateBody(state)
+    });
+
+    const confirmed = await api(API.projects);
+    const confirmedProject =
+      (confirmed.projects || []).find(isMaterialSharedProject) || null;
+
+    if (!confirmedProject) {
+      throw new Error('材料マスタ共有データを確認できませんでした。');
+    }
+
+    const confirmedState = normalizeMaterialSharedState(
+      parseMaterialSharedState(confirmedProject) || {}
+    );
+    const expected = normalizeMaterialSharedState(state);
+
+    if (JSON.stringify(confirmedState.materials) !== JSON.stringify(expected.materials)) {
+      throw new Error('材料マスタの共有保存結果を確認できませんでした。');
+    }
+
+    S.materialSharedProjectId = String(confirmedProject.id || '');
+    S.materials = confirmedState.materials;
+    localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+    renderMaterialMaster();
+
+    S.revision = String(
+      confirmed.revision ??
+      confirmed.updatedAt ??
+      result?.revision ??
+      result?.updatedAt ??
+      S.revision ??
+      ''
+    );
+    return true;
+  });
+}
+
 function loadMaterials() {
   try { S.materials = JSON.parse(localStorage.getItem(STORAGE_MATERIALS) || '[]'); }
   catch { S.materials = []; }
@@ -3269,9 +3425,11 @@ function loadMaterials() {
   S.materials = S.materials.map(normalizeMaterial);
 }
 
-function saveMaterials() {
+
+async function saveMaterials() {
   localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
   renderMaterialMaster();
+  await persistMaterialSharedState(S.materials);
 }
 
 function toMm(value, unit) {
@@ -3367,7 +3525,7 @@ function bindCalculatorEvents() {
     if (!(price >= 0) || !(count > 0)) return toast('材料価格と取り数を正しく入力してください。');
     const cost=price/count; $('yieldCostResult').textContent=yen(cost); $('yieldCostCeil').textContent=yen(Math.ceil(cost),0); $('yieldFormulaResult').textContent=`${price.toLocaleString()} ÷ ${count.toLocaleString()}`;
   };
-  $('materialMasterForm').onsubmit = event => {
+  $('materialMasterForm').onsubmit = async event => {
     event.preventDefault();
     const id = $('materialMasterId').value || `mat-${Date.now()}`;
     const index = S.materials.findIndex(item => item.id === id);
@@ -3381,7 +3539,7 @@ function bindCalculatorEvents() {
         !(Number($('materialMasterHeight').value) > 0) ||
         !(Number($('materialMasterWidth').value) > 0) ||
         !(price >= 0) || !effectiveDate) {
-      return toast('材料情報と価格改定日日を正しく入力してください。');
+      return toast('材料情報と価格改定日を正しく入力してください。');
     }
 
     const history = previous ? [...previous.priceHistory] : [];
@@ -3406,13 +3564,24 @@ function bindCalculatorEvents() {
       price, effectiveDate, supplier, changeReason: reason, priceHistory: history
     });
 
+    const previousMaterials = S.materials.map(material => normalizeMaterial(material));
     if (index >= 0) S.materials[index] = item; else S.materials.push(item);
-    saveMaterials();
-    event.target.reset();
-    $('materialMasterId').value = '';
-    $('materialMasterEffectiveDate').value = todayIsoDate();
-    $('cancelMaterialEdit').hidden = true;
-    toast(index >= 0 ? '材料と価格履歴を更新しました' : '材料を登録しました');
+
+    try {
+      await saveMaterials();
+      event.target.reset();
+      $('materialMasterId').value = '';
+      $('materialMasterEffectiveDate').value = todayIsoDate();
+      $('cancelMaterialEdit').hidden = true;
+      toast(index >= 0
+        ? '材料と価格履歴を全PCへ更新しました'
+        : '材料を全PCへ登録しました');
+    } catch (error) {
+      S.materials = previousMaterials;
+      localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+      renderMaterialMaster();
+      toast(`材料マスタの共有保存に失敗しました：${error.message}`);
+    }
   };
   $('cancelMaterialEdit').onclick = () => {
     $('materialMasterForm').reset();
