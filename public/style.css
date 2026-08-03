@@ -2676,3 +2676,11 @@ textarea:focus-visible,
   background: #ecfdf3;
   color: #05603a;
 }
+
+
+/* Ver3.2 Network RC5: 最終RC */
+.portal-safety-note {
+  border-left-color: #6941c6;
+  background: #f4f3ff;
+  color: #53389e;
+}
