@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network β4</title>
+  <title>光ポータル Ver3.2 Network β5</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-network-beta4">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-beta5">
 </head>
 
 <body>
@@ -94,6 +94,10 @@
           <span id="refreshLabel">更新</span>
         </button>
         <small id="lastUpdated" class="last-updated">最終更新：—</small>
+        <span id="syncStatus" class="sync-status is-ready" role="status" aria-live="polite">
+          <i aria-hidden="true"></i>
+          <span id="syncStatusText">同期済み</span>
+        </span>
       </div>
     </div>
 
@@ -1034,7 +1038,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-beta4"
+    src="/app.js?v=3.2-network-beta5"
     defer
   ></script>
 
