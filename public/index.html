@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network β6</title>
+  <title>光ポータル Ver3.2 Network β7</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-network-beta6">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-beta7">
 </head>
 
 <body>
@@ -253,6 +253,14 @@
           <button id="calendarNext" type="button" aria-label="次の月">›</button>
           <input id="calendarSearch" type="search" placeholder="S2830・S930などを検索">
           <select id="calendarEmployeeFilter" aria-label="担当者で絞り込み"><option value="">全担当者</option></select>
+          <select id="calendarStatusFilter" aria-label="状態で絞り込み">
+            <option value="">全ステータス</option>
+            <option value="in_progress">製作中</option>
+            <option value="production_complete">製作完了</option>
+            <option value="delivered">納品完了</option>
+            <option value="overdue">納期超過</option>
+          </select>
+          <span id="calendarResultCount" class="filter-result-count">0件</span>
         </div>
       </div>
       <div class="monthly-calendar-wrap">
@@ -283,6 +291,22 @@
           ＋ 案件を追加
         </button>
 
+      </div>
+
+      <div class="deadline-filter-bar">
+        <select id="deadlineEmployeeFilter" aria-label="担当者で絞り込み">
+          <option value="">全担当者</option>
+        </select>
+        <select id="deadlineStatusFilter" aria-label="状態で絞り込み">
+          <option value="">全ステータス</option>
+          <option value="in_progress">製作中</option>
+          <option value="production_complete">製作完了</option>
+          <option value="delivered">納品完了</option>
+          <option value="overdue">納期超過</option>
+          <option value="no_due">納期未設定</option>
+        </select>
+        <button id="clearDeadlineFilters" type="button" class="secondary">絞り込み解除</button>
+        <strong id="deadlineResultCount" class="filter-result-count">0案件</strong>
       </div>
 
       <div id="deadlineList"></div>
@@ -1075,7 +1099,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-beta6"
+    src="/app.js?v=3.2-network-beta7"
     defer
   ></script>
 
