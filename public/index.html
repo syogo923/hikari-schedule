@@ -8,11 +8,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2 Network β8</title>
+  <title>光ポータル Ver3.2 Network RC</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2-network-beta8">
+  <link rel="stylesheet" href="/style.css?v=3.2-network-rc">
 </head>
 
 <body>
@@ -434,7 +434,11 @@
               <label>材料 縦<div class="unit-input"><input id="materialHeight" type="number" min="0" step="any" inputmode="decimal"><select id="materialHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
               <label>材料 横<div class="unit-input"><input id="materialWidth" type="number" min="0" step="any" inputmode="decimal"><select id="materialWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
             </div>
-            <label>材料価格（円／枚）<input id="materialPrice" type="number" min="0" step="any" inputmode="decimal"></label>
+            <div class="dimension-grid">
+              <label>材料価格（円／枚）<input id="materialPrice" type="number" min="0" step="any" inputmode="decimal"></label>
+              <label>価格基準日<input id="materialPriceDate" type="date"></label>
+            </div>
+            <p id="materialPriceSource" class="material-price-source">材料マスタを選ぶと、基準日時点の価格を自動入力します。</p>
             <div class="dimension-grid">
               <label>製品 縦<div class="unit-input"><input id="productHeight" type="number" min="0" step="any" inputmode="decimal"><select id="productHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
               <label>製品 横<div class="unit-input"><input id="productWidth" type="number" min="0" step="any" inputmode="decimal"><select id="productWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
@@ -473,6 +477,11 @@
               <label>材料 横<div class="unit-input"><input id="materialMasterWidth" type="number" min="0" step="any" required><select id="materialMasterWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
             </div>
             <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" required></label>
+            <div class="dimension-grid">
+              <label>適用開始日<input id="materialMasterEffectiveDate" type="date" required></label>
+              <label>仕入先<input id="materialMasterSupplier" placeholder="例：○○商事"></label>
+            </div>
+            <label>価格変更理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー価格改定、仕入先変更"></textarea></label>
             <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
           </form>
           <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><div id="materialMasterList" class="material-master-list"></div></section>
@@ -1031,6 +1040,18 @@
     </form>
   </dialog>
 
+  <!-- 材料価格履歴 -->
+  <dialog id="materialHistoryDialog" class="material-history-dialog">
+    <div class="material-history-panel">
+      <header>
+        <div><p class="dialog-eyebrow">MATERIAL PRICE HISTORY</p><h2 id="materialHistoryTitle">材料価格履歴</h2></div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+      <div id="materialHistoryList" class="material-history-list"></div>
+      <footer><button type="button" class="secondary" data-close>閉じる</button></footer>
+    </div>
+  </dialog>
+
   <!-- 同期状態詳細 -->
   <dialog id="syncDetailDialog" class="sync-detail-dialog">
     <div class="sync-detail-panel">
@@ -1099,7 +1120,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2-network-beta8"
+    src="/app.js?v=3.2-network-rc"
     defer
   ></script>
 
