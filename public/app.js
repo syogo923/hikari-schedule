@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.1 - 全PC共有安定修正版 */
+/* 光ポータル Ver3.1 - 共有保存削除・安定修正版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -213,12 +213,14 @@ function sharedPortalStateBody() {
   return {
     id: S.sharedPortalProjectId || '',
     shipNo: SHARED_PORTAL_SHIP_NO,
-    displayName: API_EMPTY_TEXT,
-    productName: API_EMPTY_TEXT,
+    // 共有管理レコードは通常案件の必須チェックを通す固定値を使用する。
+    // 一覧・月間カレンダーには表示されない。
+    displayName: 'ポータル共有設定',
+    productName: '共有データ',
     client: SHARED_PORTAL_CLIENT,
     employeeIds: [employeeId],
     employeeId,
-    dueDate: '',
+    dueDate: '2099-12-31',
     notes: JSON.stringify({
       version: 1,
       updatedAt: new Date().toISOString(),
@@ -1786,16 +1788,38 @@ function bindFixedEvents() {
     if (!item.title) return toast('予定名を入力してください。');
     if (type === 'once' && !item.dates.length) return toast('日付を1つ以上追加してください。');
     const index = S.internalSchedules.findIndex(x => x.id === item.id);
+    const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
     if (index >= 0) S.internalSchedules[index] = item; else S.internalSchedules.push(item);
-    await saveInternalSchedules();
-    renderCalendar();
-    resetInternalScheduleForm();
-    toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+    try {
+      await saveInternalSchedules();
+      renderCalendar();
+      resetInternalScheduleForm();
+      toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+    } catch (error) {
+      S.internalSchedules = previousSchedules;
+      localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+      renderSchedule();
+      renderCalendar();
+      renderInternalScheduleList();
+      toast(error.message);
+    }
   };
   $('stickyNoteForm').onsubmit = async event => {
-    event.preventDefault(); const date=$('stickyNoteDate').value, text=safeTrim($('stickyNoteText').value);
-    if (text) S.stickyNotes[date]=text; else delete S.stickyNotes[date];
-    await saveStickyNotes(); $('stickyNoteDialog').close(); toast(text?'メモを保存しました':'メモを消しました');
+    event.preventDefault();
+    const date = $('stickyNoteDate').value;
+    const text = safeTrim($('stickyNoteText').value);
+    const previousNotes = { ...S.stickyNotes };
+    if (text) S.stickyNotes[date] = text; else delete S.stickyNotes[date];
+    try {
+      await saveStickyNotes();
+      $('stickyNoteDialog').close();
+      toast(text ? 'メモを保存しました' : 'メモを消しました');
+    } catch (error) {
+      S.stickyNotes = previousNotes;
+      localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+      renderSchedule();
+      toast(error.message);
+    }
   };
   $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
   $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
@@ -1865,7 +1889,21 @@ function bindDelegatedEvents() {
       else if (button.dataset.deleteInternal) {
         const item=S.internalSchedules.find(x=>x.id===button.dataset.deleteInternal);
         const approved=await confirmDangerAction({title:'社内予定を削除しますか？',message:'登録済みの社内予定から削除します。',detail:item?.title||'',confirmText:'削除する'});
-        if(approved){S.internalSchedules=S.internalSchedules.filter(x=>x.id!==button.dataset.deleteInternal);await saveInternalSchedules();toast('社内予定を削除しました');}
+        if (approved) {
+          const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
+          S.internalSchedules = S.internalSchedules.filter(x => x.id !== button.dataset.deleteInternal);
+          try {
+            await saveInternalSchedules();
+            toast('社内予定を削除しました');
+          } catch (error) {
+            S.internalSchedules = previousSchedules;
+            localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+            renderSchedule();
+            renderCalendar();
+            renderInternalScheduleList();
+            toast(error.message);
+          }
+        }
       }
       else if (button.dataset.copyProject) {
         const source=S.projects.find(x=>x.id===button.dataset.copyProject);
