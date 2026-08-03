@@ -2442,3 +2442,107 @@ nav{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 3px 12px rg
 @keyframes syncPulse {
   50% { opacity: .45; transform: scale(.8); }
 }
+
+
+/* Ver3.2 Network β6: 同期詳細・操作性改善 */
+button.sync-status {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+button.sync-status:hover {
+  text-decoration: underline;
+}
+.sync-detail-dialog {
+  width: min(560px, calc(100vw - 28px));
+}
+.sync-detail-panel {
+  padding: 22px;
+}
+.sync-detail-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.sync-detail-panel > header h2 {
+  margin: 2px 0 0;
+}
+.sync-detail-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #d9e1ec;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.sync-detail-current strong {
+  display: block;
+  font-size: 17px;
+}
+.sync-detail-current p {
+  margin: 4px 0 0;
+  color: #647084;
+}
+.sync-detail-dot {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border-radius: 50%;
+  background: #22a06b;
+  box-shadow: 0 0 0 5px rgba(34,160,107,.13);
+}
+.sync-detail-dot.is-saving,
+.sync-detail-dot.is-syncing {
+  background: #2f6fed;
+  box-shadow: 0 0 0 5px rgba(47,111,237,.13);
+  animation: syncPulse 1s ease-in-out infinite;
+}
+.sync-detail-dot.is-waiting {
+  background: #d99a16;
+  box-shadow: 0 0 0 5px rgba(217,154,22,.14);
+}
+.sync-detail-dot.is-error {
+  background: #d92d20;
+  box-shadow: 0 0 0 5px rgba(217,45,32,.13);
+}
+.sync-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+.sync-detail-grid > div {
+  padding: 12px 14px;
+  border: 1px solid #e3e8ef;
+  border-radius: 10px;
+}
+.sync-detail-grid dt {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sync-detail-grid dd {
+  margin: 5px 0 0;
+  font-weight: 800;
+}
+.sync-detail-note {
+  margin: 14px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+.sync-detail-panel > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+@media (max-width: 560px) {
+  .sync-detail-grid { grid-template-columns: 1fr; }
+  .sync-detail-panel > footer { flex-direction: column-reverse; }
+  .sync-detail-panel > footer button { width: 100%; }
+}
