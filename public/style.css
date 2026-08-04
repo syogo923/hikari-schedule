@@ -3046,3 +3046,87 @@ input[aria-busy="true"] {
 .rudy-rider .rudykun-vector {
   filter: drop-shadow(0 2px 2px rgba(13, 35, 71, .14));
 }
+
+
+/* =========================================================
+   Ver3.3.2 仕上げ修正
+   車輪内部透明／音符位置／走行軌跡／山の継ぎ目軽減
+   ========================================================= */
+
+/* 音符を少し上・後方へ。 */
+.rudy-reaction {
+  right: 15px;
+  top: -25px;
+}
+
+/* るでぃくんの後ろに走行軌跡を表示。 */
+.rudy-trail {
+  position: absolute;
+  left: -42px;
+  top: 47px;
+  z-index: -1;
+  color: #7893a2;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  line-height: 1;
+  opacity: .48;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255,255,255,.85);
+  animation: rudyTrailPulse 1.25s ease-in-out infinite;
+}
+
+.portal-mascot-scene.is-syncing .rudy-trail {
+  left: -62px;
+  letter-spacing: 3px;
+  opacity: .68;
+}
+
+.portal-mascot-scene.is-saving .rudy-trail,
+.portal-mascot-scene.is-waiting .rudy-trail,
+.portal-mascot-scene.is-error .rudy-trail {
+  display: none;
+}
+
+@keyframes rudyTrailPulse {
+  0%,100% { opacity: .28; transform: translateX(0); }
+  50% { opacity: .62; transform: translateX(-3px); }
+}
+
+/* 山の繰り返し境界を整数ピクセルに固定し、サブピクセルの継ぎ目を抑える。 */
+.portal-mountain-back {
+  background-size: 1301px 45px;
+  background-position: 0 bottom;
+  animation: none !important;
+}
+
+.portal-mountain-front {
+  background-size: 984px 34px;
+  background-position: 0 bottom;
+  animation: none !important;
+}
+
+/* 境界を薄く覆って縦線を目立たなくする。 */
+.portal-mountain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,.012),
+    rgba(255,255,255,0) 8%,
+    rgba(255,255,255,0) 92%,
+    rgba(255,255,255,.012)
+  );
+}
+
+/* 車輪は回転させず、黒い外周線と装飾線を維持。 */
+.rudykun-vector .wheel-part,
+.rudykun-vector.is-riding .rear-wheel-part,
+.rudykun-vector.is-riding .front-wheel-part,
+.rudykun-vector.is-syncing .rear-wheel-part,
+.rudykun-vector.is-syncing .front-wheel-part {
+  animation: none !important;
+  transform: none !important;
+}
