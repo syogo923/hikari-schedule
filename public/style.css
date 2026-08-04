@@ -3247,3 +3247,124 @@ input[aria-busy="true"] {
     animation: none !important;
   }
 }
+
+
+/* =========================================================
+   Ver3.4 Mascot Final Edition
+   透明車輪／丸い山／完全シームレス／自然な軌跡と上下動
+   ========================================================= */
+
+/* 音符はキャラクターの少し後ろ・上。動きは控えめ。 */
+.rudy-reaction {
+  right: 19px;
+  top: -27px;
+  animation: rudyFinalNote 1.6s ease-in-out infinite;
+}
+
+@keyframes rudyFinalNote {
+  0%, 100% { transform: translateY(0) rotate(-4deg); opacity: .78; }
+  50%      { transform: translateY(-3px) rotate(4deg); opacity: 1; }
+}
+
+/* 3つの点を個別に波打たせる。 */
+.rudy-trail {
+  left: -39px;
+  top: 48px;
+  gap: 5px;
+}
+
+.rudy-trail i {
+  width: 4px;
+  height: 4px;
+  opacity: .25;
+  animation: rudyFinalTrailWave .92s ease-in-out infinite;
+}
+
+.rudy-trail i:nth-child(1) { animation-delay: 0s; }
+.rudy-trail i:nth-child(2) { animation-delay: .13s; }
+.rudy-trail i:nth-child(3) { animation-delay: .26s; }
+
+.portal-mascot-scene.is-syncing .rudy-trail {
+  left: -49px;
+  gap: 6px;
+}
+.portal-mascot-scene.is-syncing .rudy-trail i {
+  animation-duration: .50s;
+}
+
+@keyframes rudyFinalTrailWave {
+  0%, 100% {
+    transform: translateY(3px) scale(.82);
+    opacity: .20;
+  }
+  50% {
+    transform: translateY(-4px) scale(1.05);
+    opacity: .58;
+  }
+}
+
+/* 自転車の走行感：元の横断アニメーションに1〜2pxの小さな上下動を加える。 */
+.rudy-rider .rudykun-vector {
+  animation: rudyFinalBodyBob .78s ease-in-out infinite;
+  transform-origin: 50% 82%;
+}
+
+@keyframes rudyFinalBodyBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1.7px); }
+}
+
+/* 山は元の縦横比を維持するため、丸みが崩れない。 */
+.portal-mountain {
+  background-image: url("assets/mokomoko-mountain-seamless.svg");
+  background-repeat: repeat-x;
+  background-position: 0 bottom;
+  background-size: auto 100%;
+  will-change: background-position;
+}
+
+/*
+  1タイルは元SVG比率を維持。
+  後景45px時：約1296px、前景34px時：約979px。
+  1タイル分だけ移動して完全ループする。
+*/
+.portal-mountain-back {
+  animation: mountainFinalBack 38s linear infinite !important;
+}
+.portal-mountain-front {
+  animation: mountainFinalFront 24s linear infinite !important;
+}
+
+@keyframes mountainFinalBack {
+  from { background-position: 0 bottom; }
+  to   { background-position: -1296px bottom; }
+}
+@keyframes mountainFinalFront {
+  from { background-position: 0 bottom; }
+  to   { background-position: -979px bottom; }
+}
+
+/* 旧版の境界カバーは不要。 */
+.portal-mountain::after {
+  display: none !important;
+}
+
+/* 車輪は回転させない。穴・黒い外周・内側装飾線を維持。 */
+.rudykun-vector .wheel-part,
+.rudykun-vector.is-riding .rear-wheel-part,
+.rudykun-vector.is-riding .front-wheel-part,
+.rudykun-vector.is-syncing .rear-wheel-part,
+.rudykun-vector.is-syncing .front-wheel-part {
+  animation: none !important;
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rudy-rider .rudykun-vector,
+  .rudy-trail i,
+  .rudy-reaction,
+  .portal-mountain-back,
+  .portal-mountain-front {
+    animation: none !important;
+  }
+}
