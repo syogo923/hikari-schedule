@@ -3368,3 +3368,96 @@ input[aria-busy="true"] {
     animation: none !important;
   }
 }
+
+
+/* =========================================================
+   Ver3.4.1 画面外リターン修正
+   右端の外へ走り抜け、見えない間に左端へ戻る
+   ========================================================= */
+.rudy-rider {
+  left: -145px;
+  animation-name: rudyRideOffscreen;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: left, transform, opacity;
+}
+
+@keyframes rudyRideOffscreen {
+  0% {
+    left: -145px;
+    transform: translate3d(0, 8px, 0) rotate(-2deg);
+    opacity: 0;
+  }
+
+  2.5% {
+    opacity: 1;
+  }
+
+  13% {
+    transform: translate3d(0, -3px, 0) rotate(1deg);
+  }
+
+  26% {
+    transform: translate3d(0, 7px, 0) rotate(-1deg);
+  }
+
+  40% {
+    transform: translate3d(0, -6px, 0) rotate(2deg);
+  }
+
+  54% {
+    transform: translate3d(0, 4px, 0) rotate(-1deg);
+  }
+
+  69% {
+    transform: translate3d(0, -5px, 0) rotate(1deg);
+  }
+
+  83% {
+    transform: translate3d(0, 6px, 0) rotate(-2deg);
+  }
+
+  94% {
+    left: calc(100% + 145px);
+    transform: translate3d(0, 0, 0) rotate(1deg);
+    opacity: 1;
+  }
+
+  96% {
+    left: calc(100% + 165px);
+    opacity: 0;
+  }
+
+  /* 画面外で左端へ戻すため、この区間の移動は見えない */
+  99.8% {
+    left: calc(100% + 165px);
+    opacity: 0;
+  }
+
+  100% {
+    left: -145px;
+    transform: translate3d(0, 8px, 0) rotate(-2deg);
+    opacity: 0;
+  }
+}
+
+/* 同期中も同じ画面外リターン方式を使用し、速度だけ既存設定に従う。 */
+.portal-mascot-scene.is-syncing .rudy-rider {
+  animation-name: rudyRideOffscreen;
+}
+
+/* 一時停止時は、その場で止まる既存仕様を維持。 */
+.portal-mascot-scene.is-saving .rudy-rider,
+.portal-mascot-scene.is-waiting .rudy-rider,
+.portal-mascot-scene.is-error .rudy-rider {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rudy-rider {
+    left: 50%;
+    opacity: 1;
+    animation: none !important;
+    transform: translateX(-50%) !important;
+  }
+}
