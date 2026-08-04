@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2.2 Network Edition - 二重登録防止修正版 */
+/* 光ポータル Ver3.2.3 Network Edition - るでぃくんアニメーション版 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -2622,6 +2622,21 @@ function updateSyncStatus(message, state = 'ready') {
   if (!status || !statusText) return;
 
   status.className = `sync-status is-${state}`;
+
+  const mascotScene = $('portalMascotScene');
+  if (mascotScene) {
+    mascotScene.className = `portal-mascot-scene is-${state}`;
+    const reaction = mascotScene.querySelector('.rudy-reaction');
+    if (reaction) {
+      reaction.textContent = ({
+        ready: '♪',
+        saving: '…',
+        syncing: '!',
+        waiting: '☕',
+        error: '?'
+      })[state] || '♪';
+    }
+  }
   const labels = {
     ready: '同期済み',
     saving: '保存中…',
