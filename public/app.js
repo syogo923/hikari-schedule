@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.2.3 Network Edition - るでぃくんアニメーション版 */
+/* 光ポータル Ver3.3 Mascot Edition */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -2635,6 +2635,26 @@ function updateSyncStatus(message, state = 'ready') {
         waiting: '☕',
         error: '?'
       })[state] || '♪';
+    }
+
+    const mascotVector = mascotScene.querySelector('.rudykun-vector');
+    if (mascotVector) {
+      mascotVector.classList.remove(
+        'is-riding',
+        'is-syncing',
+        'is-paused',
+        'is-error'
+      );
+
+      if (state === 'syncing') {
+        mascotVector.classList.add('is-riding', 'is-syncing');
+      } else if (state === 'saving' || state === 'waiting') {
+        mascotVector.classList.add('is-paused');
+      } else if (state === 'error') {
+        mascotVector.classList.add('is-error', 'is-paused');
+      } else {
+        mascotVector.classList.add('is-riding');
+      }
     }
   }
   const labels = {
