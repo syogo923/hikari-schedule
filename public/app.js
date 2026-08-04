@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.3.2 Mascot Edition - 車輪透明・音符・軌跡・山継ぎ目修正 */
+/* 光ポータル Ver3.3.3 Mascot Edition - 透明車輪・波打つ軌跡・山シームレス */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
