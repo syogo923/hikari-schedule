@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.2.2 Network Edition</title>
+  <title>光ポータル Ver3.2.3 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.2.2-double-submit-fix">
+  <link rel="stylesheet" href="/style.css?v=3.2.3-rudykun-animation">
 </head>
 
 <body>
@@ -53,6 +53,19 @@
 
   <!-- ヘッダー -->
   <header class="topbar">
+
+    <!-- るでぃくん：システム状態連動アニメーション -->
+    <div id="portalMascotScene" class="portal-mascot-scene is-ready" aria-hidden="true">
+      <div class="portal-mountain portal-mountain-back"></div>
+      <div class="portal-mountain portal-mountain-front"></div>
+      <div class="rudy-track">
+        <div class="rudy-rider">
+          <span class="rudy-reaction" aria-hidden="true">♪</span>
+          <span class="rudy-speed-lines" aria-hidden="true"></span>
+          <img src="assets/rudykun.svg" alt="">
+        </div>
+      </div>
+    </div>
 
     <div class="brand">
       <img
@@ -1125,7 +1138,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.2.2-double-submit-fix"
+    src="/app.js?v=3.2.3-rudykun-animation"
     defer
   ></script>
 
