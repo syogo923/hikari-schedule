@@ -3016,3 +3016,33 @@ input[aria-busy="true"] {
     width: 96px;
   }
 }
+
+
+/* =========================================================
+   Ver3.3.1 修正
+   白ヘッダー維持／山を緑・青へ復帰／車輪回転停止／車輪内部透明
+   ========================================================= */
+.portal-mountain-back {
+  opacity: .24;
+  filter: saturate(.95) brightness(.92) hue-rotate(0deg);
+}
+
+.portal-mountain-front {
+  opacity: .62;
+  filter: saturate(1.02) brightness(.74) hue-rotate(0deg);
+}
+
+/* 車輪はキャラクターと一緒に移動するだけで、個別回転させない。 */
+.rudykun-vector .wheel-part,
+.rudykun-vector.is-riding .rear-wheel-part,
+.rudykun-vector.is-riding .front-wheel-part,
+.rudykun-vector.is-syncing .rear-wheel-part,
+.rudykun-vector.is-syncing .front-wheel-part {
+  animation: none !important;
+  transform: none !important;
+}
+
+/* 白ヘッダー上で線をくっきり、ただし重くしすぎない。 */
+.rudy-rider .rudykun-vector {
+  filter: drop-shadow(0 2px 2px rgba(13, 35, 71, .14));
+}
