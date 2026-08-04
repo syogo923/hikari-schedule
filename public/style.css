@@ -3130,3 +3130,120 @@ input[aria-busy="true"] {
   animation: none !important;
   transform: none !important;
 }
+
+
+/* =========================================================
+   Ver3.3.3 仕上げ修正
+   透明車輪／独立3点の波打ち／山の横移動と継ぎ目対策
+   ========================================================= */
+
+/* 音符を少し上・後方へ固定。 */
+.rudy-reaction {
+  right: 18px;
+  top: -29px;
+}
+
+/* 点を3個別々にして、時間差で波打たせる。 */
+.rudy-trail {
+  position: absolute;
+  left: -47px;
+  top: 47px;
+  z-index: -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  color: transparent;
+  opacity: 1;
+  text-shadow: none;
+  animation: none;
+}
+
+.rudy-trail i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #7893a2;
+  opacity: .30;
+  box-shadow: 0 1px 0 rgba(255,255,255,.85);
+  animation: rudyTrailWave .9s ease-in-out infinite;
+}
+
+.rudy-trail i:nth-child(2) { animation-delay: .12s; }
+.rudy-trail i:nth-child(3) { animation-delay: .24s; }
+
+.portal-mascot-scene.is-syncing .rudy-trail {
+  left: -58px;
+  gap: 8px;
+}
+.portal-mascot-scene.is-syncing .rudy-trail i {
+  animation-duration: .48s;
+  opacity: .62;
+}
+
+.portal-mascot-scene.is-saving .rudy-trail,
+.portal-mascot-scene.is-waiting .rudy-trail,
+.portal-mascot-scene.is-error .rudy-trail {
+  display: none;
+}
+
+@keyframes rudyTrailWave {
+  0%, 100% {
+    transform: translateY(3px) scale(.86);
+    opacity: .25;
+  }
+  50% {
+    transform: translateY(-5px) scale(1.08);
+    opacity: .75;
+  }
+}
+
+/* 継ぎ目対策済みの横長SVGを使い、横移動を復活。 */
+.portal-mountain {
+  background-image: url("assets/mokomoko-mountain-seamless.svg");
+  background-repeat: repeat-x;
+  background-position: 0 bottom;
+  will-change: background-position;
+}
+
+.portal-mountain-back {
+  background-size: 1128px 45px;
+  animation: mountainDriftBackSeamless 38s linear infinite !important;
+}
+
+.portal-mountain-front {
+  background-size: 1128px 34px;
+  animation: mountainDriftFrontSeamless 24s linear infinite !important;
+}
+
+/* 376pxごとに同一絵柄を重ねているため、この距離でループしても継ぎ目が出ない。 */
+@keyframes mountainDriftBackSeamless {
+  from { background-position: 0 bottom; }
+  to   { background-position: -376px bottom; }
+}
+@keyframes mountainDriftFrontSeamless {
+  from { background-position: 0 bottom; }
+  to   { background-position: -376px bottom; }
+}
+
+/* 古い境界カバーは不要。 */
+.portal-mountain::after { display: none !important; }
+
+/* 車輪は回転させず、透明穴・外周線・装飾線を維持。 */
+.rudykun-vector .wheel-part,
+.rudykun-vector.is-riding .rear-wheel-part,
+.rudykun-vector.is-riding .front-wheel-part,
+.rudykun-vector.is-syncing .rear-wheel-part,
+.rudykun-vector.is-syncing .front-wheel-part {
+  animation: none !important;
+  transform: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rudy-trail i,
+  .portal-mountain-back,
+  .portal-mountain-front {
+    animation: none !important;
+  }
+}
