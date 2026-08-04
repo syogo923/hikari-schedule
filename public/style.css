@@ -2872,3 +2872,147 @@ input[aria-busy="true"] {
   .rudy-rider,.portal-mountain,.rudy-reaction{animation:none!important}
   .rudy-rider{left:50%;transform:translateX(-50%)!important}
 }
+
+
+/* =========================================================
+   Ver3.3 Mascot Edition
+   白ヘッダー／緑青の山／るでぃくんWebベクター
+   ========================================================= */
+.topbar {
+  min-height: 154px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #ffffff 68%, #f7fbfc 100%);
+  border-bottom: 1px solid #d9e5ea;
+  color: #0d2347;
+}
+
+.topbar .brand h1 {
+  color: #0d2347;
+  text-shadow: none;
+}
+
+.topbar .brand p,
+.topbar .last-updated {
+  color: #5b6b7d;
+}
+
+.topbar .brand > img {
+  background: #ffffff;
+  border: 1px solid #d7e1e8;
+  box-shadow: 0 4px 12px rgba(13, 35, 71, .10);
+}
+
+.portal-mascot-scene {
+  --ride-duration: 15s;
+}
+
+.portal-mountain-back {
+  bottom: 20px;
+  height: 52px;
+  opacity: .30;
+  filter:
+    sepia(.12)
+    saturate(1.18)
+    hue-rotate(118deg)
+    brightness(.92);
+}
+
+.portal-mountain-front {
+  bottom: -1px;
+  height: 43px;
+  opacity: .78;
+  filter:
+    sepia(.08)
+    saturate(1.35)
+    hue-rotate(105deg)
+    brightness(.72);
+}
+
+.rudy-track {
+  left: clamp(270px, 25vw, 500px);
+  right: clamp(260px, 22vw, 420px);
+  bottom: 30px;
+  height: 92px;
+}
+
+.rudy-rider {
+  left: -122px;
+  width: 112px;
+  bottom: 0;
+}
+
+.rudy-rider .rudykun-vector {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 3px 2px rgba(13, 35, 71, .18));
+}
+
+.rudy-rider .rudykun-vector .source-path {
+  shape-rendering: geometricPrecision;
+}
+
+.rudy-reaction {
+  right: 1px;
+  top: -13px;
+  color: #d6a421;
+  font-size: 22px;
+  text-shadow: 0 1px 0 #ffffff, 0 2px 4px rgba(13, 35, 71, .18);
+}
+
+.rudy-speed-lines {
+  border-color: rgba(16, 106, 116, .55);
+}
+.rudy-speed-lines::after {
+  border-color: rgba(16, 106, 116, .48);
+}
+
+.portal-mascot-scene.is-saving .rudy-rider {
+  filter: drop-shadow(0 0 7px rgba(48, 112, 217, .30));
+}
+
+.portal-mascot-scene.is-error .rudy-rider {
+  filter: drop-shadow(0 0 8px rgba(217, 45, 75, .32));
+}
+
+.portal-mascot-scene.is-error .rudy-reaction {
+  color: #d92d4b;
+}
+
+.portal-mascot-scene.is-ready .rudy-reaction {
+  color: #d6a421;
+}
+
+/* Inline SVG wheel animation. */
+.rudykun-vector .wheel-part {
+  transform-box: fill-box;
+}
+.rudykun-vector.is-riding .rear-wheel-part,
+.rudykun-vector.is-riding .front-wheel-part {
+  animation-duration: .9s;
+}
+.rudykun-vector.is-syncing .rear-wheel-part,
+.rudykun-vector.is-syncing .front-wheel-part {
+  animation-duration: .38s;
+}
+
+/* Buttons remain readable on the light header. */
+.topbar .secondary,
+.topbar .current-actor-status {
+  box-shadow: 0 3px 10px rgba(13, 35, 71, .10);
+}
+
+.topbar .sync-status {
+  color: #36556d;
+}
+
+@media(max-width:1050px) {
+  .rudy-track {
+    left: 270px;
+    right: 255px;
+  }
+  .rudy-rider {
+    width: 96px;
+  }
+}
