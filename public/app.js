@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.4 Mascot Final Edition */
+/* 光ポータル Ver3.4.1 Mascot Final Edition - 画面外リターン修正 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
