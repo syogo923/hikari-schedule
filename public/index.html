@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.4.1 Mascot Final Edition</title>
+  <title>光ポータル Ver3.5 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.4.1-offscreen-return">
+  <link rel="stylesheet" href="/style.css?v=3.5-reminder-duty">
 </head>
 
 <body>
@@ -306,6 +306,38 @@
         class="notice"
       ></div>
 
+      <section id="homeAssistPanel" class="home-assist-panel" aria-label="社内予定と今週の担当">
+        <div class="home-assist-heading">
+          <div>
+            <span class="home-assist-kicker">OFFICE REMINDER</span>
+            <h2>社内のお知らせ</h2>
+          </div>
+          <button id="openDutyMasterFromHome" type="button" class="home-assist-settings-link">当番マスター</button>
+        </div>
+
+        <div class="home-assist-grid">
+          <article class="office-reminder-card">
+            <div class="office-reminder-title">
+              <span class="office-reminder-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4.5 8.5h15M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/><path d="M8 12h3M8 16h6"/></svg>
+              </span>
+              <div><strong>今日・明日の社内予定</strong><small>光ポータルを開いたとき自然に確認できます</small></div>
+            </div>
+            <div id="homeInternalReminder" class="home-internal-reminder"></div>
+          </article>
+
+          <article class="duty-summary-card">
+            <div class="office-reminder-title">
+              <span class="office-reminder-icon duty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m14.5 4.2 5.3 5.3M13.2 5.5l5.3 5.3M5 20c2.8-1.1 5.1-3.3 6.2-6.2l3.4-3.4-5-5-3.4 3.4C3.3 9.9 1.1 12.2 0 15c1.6.1 3.1.7 4.2 1.8S5.9 19.4 5 20Z" transform="translate(2 0) scale(.9)"/></svg>
+              </span>
+              <div><strong>今週の担当</strong><small>通常のローテーションを自動表示します</small></div>
+            </div>
+            <div id="homeDutySummary" class="home-duty-summary"></div>
+          </article>
+        </div>
+      </section>
+
       <div class="schedule-wrap">
         <table
           id="scheduleTable"
@@ -582,6 +614,19 @@
         class="master-grid"
         id="masterGrid"
       ></div>
+
+      <section id="dutyMasterSection" class="duty-master-section">
+        <div class="duty-master-head">
+          <div>
+            <span class="home-assist-kicker">DUTY ROTATION</span>
+            <h3>当番マスター</h3>
+            <p class="muted">当番名・曜日・対象職員・ローテーション順を設定します。今週だけ担当を変えても、翌週の通常順は変わりません。</p>
+          </div>
+          <button id="addDutyMaster" type="button" class="primary">＋ 当番を追加</button>
+        </div>
+        <div id="dutyMasterList" class="duty-master-list"></div>
+      </section>
+
       <section class="portal-data-management">
         <h3>共有データ管理</h3>
         <p class="muted">各PCに残っている旧データを書き出し、複数台分を共有データへ結合できます。</p>
@@ -1189,6 +1234,56 @@
     </div>
   </dialog>
 
+  <!-- 当番マスター編集 -->
+  <dialog id="dutyMasterDialog" class="duty-master-dialog">
+    <form id="dutyMasterForm">
+      <header>
+        <div><p class="dialog-eyebrow">DUTY ROTATION</p><h2 id="dutyMasterHeading">当番を追加</h2></div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+      <input id="dutyMasterId" type="hidden">
+      <label>当番名<input id="dutyMasterName" required maxlength="40" placeholder="例：トイレ掃除"></label>
+      <label>実施曜日
+        <select id="dutyMasterWeekday">
+          <option value="1">毎週月曜日</option><option value="2">毎週火曜日</option>
+          <option value="3">毎週水曜日</option><option value="4">毎週木曜日</option>
+          <option value="5" selected>毎週金曜日</option><option value="6">毎週土曜日</option>
+          <option value="0">毎週日曜日</option>
+        </select>
+      </label>
+      <fieldset class="duty-employee-fieldset">
+        <legend>対象職員とローテーション順</legend>
+        <p class="muted">上から順番に担当します。矢印で並び替えできます。</p>
+        <div id="dutyEmployeeChoices" class="duty-employee-choices"></div>
+      </fieldset>
+      <footer>
+        <button type="button" class="secondary" data-close>キャンセル</button>
+        <button type="submit" class="primary">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 今週だけ担当変更 -->
+  <dialog id="dutyOverrideDialog" class="duty-override-dialog">
+    <form id="dutyOverrideForm">
+      <header>
+        <div><p class="dialog-eyebrow">THIS WEEK ONLY</p><h2 id="dutyOverrideHeading">今週だけ担当変更</h2></div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+      <input id="dutyOverrideDutyId" type="hidden">
+      <p id="dutyOverrideCurrent" class="duty-override-current"></p>
+      <label>今週の担当
+        <select id="dutyOverrideEmployee" required></select>
+      </label>
+      <p class="muted">変更しても通常のローテーション順は変わりません。翌週は自動で通常担当へ戻ります。</p>
+      <footer>
+        <button type="button" id="clearDutyOverride" class="text-button">通常担当に戻す</button>
+        <button type="button" class="secondary" data-close>キャンセル</button>
+        <button type="submit" class="primary">今週だけ変更</button>
+      </footer>
+    </form>
+  </dialog>
+
   <!-- トースト通知 -->
   <div
     id="toast"
@@ -1197,7 +1292,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.4.1-offscreen-return"
+    src="/app.js?v=3.5-reminder-duty"
     defer
   ></script>
 
