@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.4.1 Mascot Final Edition - 画面外リターン修正 */
+/* 光ポータル Ver3.5 Network Edition - 社内リマインダー・当番マスター */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -62,6 +62,9 @@ const S = {
   projectLifecycle: {},
   internalSchedules: [],
   stickyNotes: {},
+  dutyMasters: [],
+  dutyOverrides: {},
+  reminderTimer: null,
   calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   calendarQ: '',
   calendarEmployeeId: '',
@@ -513,6 +516,15 @@ function sharedPortalStateBody(sharedState = {}) {
       typeof sharedState.stickyNotes === 'object' &&
       !Array.isArray(sharedState.stickyNotes)
         ? sharedState.stickyNotes
+        : {},
+    dutyMasters: Array.isArray(sharedState.dutyMasters)
+      ? sharedState.dutyMasters.map(normalizeDutyMaster)
+      : [],
+    dutyOverrides:
+      sharedState.dutyOverrides &&
+      typeof sharedState.dutyOverrides === 'object' &&
+      !Array.isArray(sharedState.dutyOverrides)
+        ? { ...sharedState.dutyOverrides }
         : {}
   };
 
@@ -536,6 +548,8 @@ function sharedPortalStateBody(sharedState = {}) {
 function hasLocalSharedPortalState() {
   return S.internalSchedules.length > 0 ||
     Object.keys(S.stickyNotes).length > 0 ||
+    S.dutyMasters.length > 0 ||
+    Object.keys(S.dutyOverrides).length > 0 ||
     Object.keys(S.assigneeProgress).length > 0 ||
     Object.keys(S.projectLifecycle).length > 0;
 }
@@ -546,6 +560,8 @@ function sharedPortalStateSnapshot() {
   return {
     internalSchedules: S.internalSchedules.map(item => ({ ...item, dates: [...(item.dates || [])] })),
     stickyNotes: { ...S.stickyNotes },
+    dutyMasters: S.dutyMasters.map(normalizeDutyMaster),
+    dutyOverrides: { ...S.dutyOverrides },
     assigneeProgress: Object.fromEntries(
       Object.entries(S.assigneeProgress).map(([projectId, progress]) => [projectId, { ...(progress || {}) }])
     ),
@@ -567,6 +583,15 @@ function normalizedSharedPortalState(state = {}) {
       !Array.isArray(state.stickyNotes)
         ? { ...state.stickyNotes }
         : {},
+    dutyMasters: Array.isArray(state.dutyMasters)
+      ? state.dutyMasters.map(normalizeDutyMaster)
+      : [],
+    dutyOverrides:
+      state.dutyOverrides &&
+      typeof state.dutyOverrides === 'object' &&
+      !Array.isArray(state.dutyOverrides)
+        ? { ...state.dutyOverrides }
+        : {},
     assigneeProgress: {},
     projectLifecycle: {}
   };
@@ -580,6 +605,8 @@ function applySharedPortalStateObject(state = {}) {
   // 担当者進捗・製作完了・納品完了は各案件本体へ保存する。
   S.internalSchedules = normalized.internalSchedules;
   S.stickyNotes = normalized.stickyNotes;
+  S.dutyMasters = normalized.dutyMasters;
+  S.dutyOverrides = normalized.dutyOverrides;
 
   localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
   localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
@@ -842,6 +869,12 @@ async function persistSharedPortalPatch(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) {
       state.stickyNotes = { ...(patch.stickyNotes || {}) };
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'dutyMasters')) {
+      state.dutyMasters = (patch.dutyMasters || []).map(normalizeDutyMaster);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'dutyOverrides')) {
+      state.dutyOverrides = { ...(patch.dutyOverrides || {}) };
+    }
 
     // 担当者進捗と案件ステータスは案件本体へ保存する。
   });
@@ -851,6 +884,8 @@ async function persistSharedPortalState() {
   return persistSharedPortalPatch({
     internalSchedules: S.internalSchedules,
     stickyNotes: S.stickyNotes,
+    dutyMasters: S.dutyMasters,
+    dutyOverrides: S.dutyOverrides,
     assigneeProgress: S.assigneeProgress,
     projectLifecycle: S.projectLifecycle
   });
@@ -875,6 +910,7 @@ async function saveInternalSchedules(changedSchedule = null) {
   renderSchedule();
   renderCalendar();
   renderInternalScheduleList();
+  renderHomeInternalReminder();
 }
 
 
@@ -883,6 +919,237 @@ async function saveStickyNotes(changedDate = '') {
   if (changedDate) await saveSharedStickyNote(changedDate, S.stickyNotes[changedDate] || '');
   else await persistSharedPortalPatch({ stickyNotes: S.stickyNotes });
   renderSchedule();
+}
+
+
+const DUTY_WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function normalizeDutyMaster(item = {}) {
+  const employeeIds = [...new Set(
+    (Array.isArray(item.employeeIds) ? item.employeeIds : [])
+      .map(String)
+      .filter(Boolean)
+  )];
+  return {
+    id: String(item.id || `duty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    name: safeTrim(item.name),
+    weekday: Math.min(6, Math.max(0, Number(item.weekday ?? 5))),
+    employeeIds,
+    anchorWeek: item.anchorWeek || weekStartDate(new Date()),
+    active: item.active !== false
+  };
+}
+
+function localDateAtMidnight(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(`${value}T00:00:00`);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function weekStartDate(value = new Date()) {
+  const date = localDateAtMidnight(value);
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  return fd(date);
+}
+
+function addDateDays(value, days) {
+  const date = localDateAtMidnight(value);
+  date.setDate(date.getDate() + Number(days || 0));
+  return fd(date);
+}
+
+function dutyWeekKey(dutyId, date = new Date()) {
+  return `${dutyId}:${weekStartDate(date)}`;
+}
+
+function activeDutyEmployees(duty) {
+  return duty.employeeIds.filter(id => employee(id)?.active !== false);
+}
+
+function dutyOccurrenceDate(duty, date = new Date()) {
+  const monday = localDateAtMidnight(weekStartDate(date));
+  const weekdayOffset = duty.weekday === 0 ? 6 : duty.weekday - 1;
+  monday.setDate(monday.getDate() + weekdayOffset);
+  return fd(monday);
+}
+
+function regularDutyEmployeeId(duty, date = new Date()) {
+  const employees = activeDutyEmployees(duty);
+  if (!employees.length) return '';
+  const current = localDateAtMidnight(weekStartDate(date));
+  const anchor = localDateAtMidnight(duty.anchorWeek || weekStartDate(date));
+  const weeks = Math.floor((current - anchor) / 604800000);
+  const index = ((weeks % employees.length) + employees.length) % employees.length;
+  return employees[index] || '';
+}
+
+function assignedDutyEmployeeId(duty, date = new Date()) {
+  const override = S.dutyOverrides[dutyWeekKey(duty.id, date)];
+  if (override && employee(override)?.active !== false) return override;
+  return regularDutyEmployeeId(duty, date);
+}
+
+function dutyHasOverride(duty, date = new Date()) {
+  return Boolean(S.dutyOverrides[dutyWeekKey(duty.id, date)]);
+}
+
+function internalReminderItemHtml(item, date, groupLabel) {
+  const now = new Date();
+  const isToday = date === fd(now);
+  let tone = '';
+  let timing = '';
+  if (isToday && item.time) {
+    const start = new Date(`${date}T${item.time}:00`);
+    const diff = start.getTime() - now.getTime();
+    if (diff >= 0 && diff <= 60 * 60 * 1000) {
+      tone = ' is-soon';
+      timing = diff < 60 * 1000 ? 'まもなく' : `あと${Math.max(1, Math.ceil(diff / 60000))}分`;
+    } else if (diff < 0) {
+      tone = ' is-past';
+      timing = '時刻経過';
+    }
+  }
+  return `<button type="button" class="home-reminder-item${tone}" data-open-internal-schedule data-internal-id="${esc(item.id)}">
+    <span class="home-reminder-day">${esc(groupLabel)}</span>
+    <span class="home-reminder-time">${esc(item.time || '終日')}</span>
+    <strong>${esc(item.title)}</strong>
+    ${timing ? `<small>${esc(timing)}</small>` : ''}
+  </button>`;
+}
+
+function renderHomeInternalReminder() {
+  const host = $('homeInternalReminder');
+  if (!host) return;
+  const today = fd(new Date());
+  const tomorrow = addDateDays(today, 1);
+  const todayItems = internalSchedulesForDate(today)
+    .sort((a,b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')));
+  const tomorrowItems = internalSchedulesForDate(tomorrow)
+    .sort((a,b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')));
+
+  const html = [
+    ...todayItems.map(item => internalReminderItemHtml(item, today, '今日')),
+    ...tomorrowItems.map(item => internalReminderItemHtml(item, tomorrow, '明日'))
+  ];
+
+  host.innerHTML = html.length
+    ? html.join('')
+    : '<div class="home-assist-empty">今日・明日の社内予定はありません。</div>';
+}
+
+function renderHomeDutySummary() {
+  const host = $('homeDutySummary');
+  if (!host) return;
+  const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item => item.active && item.name);
+  if (!duties.length) {
+    host.innerHTML = '<div class="home-assist-empty">当番はまだ登録されていません。<button type="button" class="inline-link" data-open-duty-master>当番マスターを設定</button></div>';
+    return;
+  }
+  host.innerHTML = duties.map(duty => {
+    const employeeId = assignedDutyEmployeeId(duty);
+    const name = employeeId ? employeeName(employeeId) : '対象職員未設定';
+    const occurrence = dutyOccurrenceDate(duty);
+    const changed = dutyHasOverride(duty);
+    return `<div class="home-duty-row">
+      <div>
+        <span class="home-duty-date">毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${esc(jp(occurrence))}</span>
+        <strong>${esc(duty.name)}</strong>
+        <span class="home-duty-person">担当：${esc(name)}</span>
+        ${changed ? '<small class="duty-override-note">※今週のみ変更中</small>' : ''}
+      </div>
+      <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}">担当変更</button>
+    </div>`;
+  }).join('');
+}
+
+function renderHomeAssist() {
+  renderHomeInternalReminder();
+  renderHomeDutySummary();
+}
+
+function renderDutyEmployeeChoices(selectedIds = []) {
+  const host = $('dutyEmployeeChoices');
+  if (!host) return;
+  const selected = [...selectedIds];
+  const all = ordered('employees').filter(item => item.active !== false);
+  const rows = [
+    ...selected.map(id => all.find(item => item.id === id)).filter(Boolean),
+    ...all.filter(item => !selected.includes(item.id))
+  ];
+  host.innerHTML = rows.map((item, index) => {
+    const checked = selected.includes(item.id);
+    return `<div class="duty-employee-choice ${checked ? 'is-selected' : ''}" data-duty-employee-row="${esc(item.id)}">
+      <label><input type="checkbox" value="${esc(item.id)}" ${checked ? 'checked' : ''}><span>${esc(item.name)}</span></label>
+      <div class="duty-order-actions">
+        <button type="button" data-duty-employee-move="up" data-employee-id="${esc(item.id)}" ${!checked || index === 0 ? 'disabled' : ''} aria-label="${esc(item.name)}を上へ">↑</button>
+        <button type="button" data-duty-employee-move="down" data-employee-id="${esc(item.id)}" ${!checked ? 'disabled' : ''} aria-label="${esc(item.name)}を下へ">↓</button>
+      </div>
+    </div>`;
+  }).join('') || '<div class="notice">職員マスタを先に登録してください。</div>';
+}
+
+function selectedDutyEmployeeIds() {
+  return [...document.querySelectorAll('#dutyEmployeeChoices input[type="checkbox"]:checked')]
+    .map(input => input.value);
+}
+
+function openDutyMaster(id = '') {
+  const source = S.dutyMasters.find(item => item.id === id);
+  const duty = source ? normalizeDutyMaster(source) : null;
+  $('dutyMasterForm')?.reset();
+  $('dutyMasterId').value = duty?.id || '';
+  $('dutyMasterName').value = duty?.name || '';
+  $('dutyMasterWeekday').value = String(duty?.weekday ?? 5);
+  $('dutyMasterHeading').textContent = duty ? '当番を編集' : '当番を追加';
+  renderDutyEmployeeChoices(duty?.employeeIds || []);
+  $('dutyMasterDialog').showModal();
+}
+
+function openDutyOverride(dutyId) {
+  const duty = S.dutyMasters.find(item => item.id === dutyId);
+  if (!duty) return;
+  const employees = activeDutyEmployees(duty);
+  const regularId = regularDutyEmployeeId(duty);
+  const currentId = assignedDutyEmployeeId(duty);
+  $('dutyOverrideDutyId').value = duty.id;
+  $('dutyOverrideHeading').textContent = `${duty.name}：今週だけ担当変更`;
+  $('dutyOverrideCurrent').textContent = `通常担当：${regularId ? employeeName(regularId) : '未設定'}`;
+  $('dutyOverrideEmployee').innerHTML = employees
+    .map(id => `<option value="${esc(id)}">${esc(employeeName(id))}</option>`)
+    .join('');
+  $('dutyOverrideEmployee').value = currentId || regularId || employees[0] || '';
+  $('clearDutyOverride').hidden = !dutyHasOverride(duty);
+  $('dutyOverrideDialog').showModal();
+}
+
+function renderDutyMasters() {
+  const host = $('dutyMasterList');
+  if (!host) return;
+  const duties = S.dutyMasters.map(normalizeDutyMaster);
+  host.innerHTML = duties.length ? duties.map(duty => {
+    const members = activeDutyEmployees(duty).map(employeeName).join(' → ') || '対象職員未設定';
+    return `<article class="duty-master-item ${duty.active ? '' : 'is-inactive'}">
+      <div>
+        <strong>${esc(duty.name || '名称未設定')}</strong>
+        <span>毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日</span>
+        <small>${esc(members)}</small>
+      </div>
+      <div class="duty-master-actions">
+        <button type="button" class="secondary" data-edit-duty="${esc(duty.id)}">編集</button>
+        <button type="button" class="secondary" data-toggle-duty="${esc(duty.id)}">${duty.active ? '非表示' : '表示'}</button>
+        <button type="button" class="danger" data-delete-duty="${esc(duty.id)}">削除</button>
+      </div>
+    </article>`;
+  }).join('') : '<div class="notice">当番はまだ登録されていません。</div>';
+}
+
+async function saveDutySharedState() {
+  await persistSharedPortalPatch({
+    dutyMasters: S.dutyMasters,
+    dutyOverrides: S.dutyOverrides
+  });
+  renderDutyMasters();
+  renderHomeDutySummary();
 }
 
 function normalizeInternalSchedule(item = {}) {
@@ -2139,6 +2406,8 @@ function render() {
   renderTrash();
   renderCalendar();
   renderInternalScheduleList();
+  renderHomeAssist();
+  renderDutyMasters();
   fillSelects();
 }
 
@@ -3183,6 +3452,12 @@ function bindFixedEvents() {
 
 function bindDelegatedEvents() {
   document.body.addEventListener('change', async event => {
+    const dutyCheckbox = event.target.closest('#dutyEmployeeChoices input[type="checkbox"]');
+    if (dutyCheckbox) {
+      renderDutyEmployeeChoices(selectedDutyEmployeeIds());
+      return;
+    }
+
     const progressCheckbox = event.target.closest('[data-assignee-complete]');
     if (progressCheckbox) {
       const projectId = progressCheckbox.dataset.projectId;
@@ -3218,6 +3493,59 @@ function bindDelegatedEvents() {
   });
 
   document.body.addEventListener('submit', async event => {
+    if (event.target.id === 'dutyMasterForm') {
+      event.preventDefault();
+      const id = $('dutyMasterId').value;
+      const employeeIds = selectedDutyEmployeeIds();
+      if (!employeeIds.length) return toast('対象職員を1名以上選択してください。');
+      const existing = S.dutyMasters.find(item => item.id === id);
+      const duty = normalizeDutyMaster({
+        id: id || `duty-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+        name: $('dutyMasterName').value,
+        weekday: Number($('dutyMasterWeekday').value),
+        employeeIds,
+        anchorWeek: existing?.anchorWeek || weekStartDate(new Date()),
+        active: existing?.active !== false
+      });
+      if (!duty.name) return toast('当番名を入力してください。');
+      const before = S.dutyMasters.map(normalizeDutyMaster);
+      const index = S.dutyMasters.findIndex(item => item.id === duty.id);
+      if (index >= 0) S.dutyMasters[index] = duty;
+      else S.dutyMasters.push(duty);
+      try {
+        await saveDutySharedState();
+        $('dutyMasterDialog').close();
+        toast(index >= 0 ? '当番を更新しました' : '当番を追加しました');
+      } catch (error) {
+        S.dutyMasters = before;
+        renderDutyMasters();
+        renderHomeDutySummary();
+        toast(error.message);
+      }
+      return;
+    }
+
+    if (event.target.id === 'dutyOverrideForm') {
+      event.preventDefault();
+      const dutyId = $('dutyOverrideDutyId').value;
+      const employeeId = $('dutyOverrideEmployee').value;
+      const duty = S.dutyMasters.find(item => item.id === dutyId);
+      if (!duty || !employeeId) return;
+      const key = dutyWeekKey(duty.id);
+      const before = { ...S.dutyOverrides };
+      S.dutyOverrides[key] = employeeId;
+      try {
+        await saveDutySharedState();
+        $('dutyOverrideDialog').close();
+        toast('今週の担当を変更しました');
+      } catch (error) {
+        S.dutyOverrides = before;
+        renderHomeDutySummary();
+        toast(error.message);
+      }
+      return;
+    }
+
     const form = event.target.closest('[data-master]');
     if (!form) return;
     event.preventDefault();
@@ -3230,6 +3558,51 @@ function bindDelegatedEvents() {
     if (!button) return;
     try {
       if (button.dataset.view) switchView(button.dataset.view);
+      else if (button.id === 'openDutyMasterFromHome' || button.id === 'addDutyMaster' || button.dataset.openDutyMaster !== undefined) {
+        switchView('masters');
+        requestAnimationFrame(() => $('dutyMasterSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        if (button.id === 'addDutyMaster') openDutyMaster();
+      }
+      else if (button.dataset.editDuty) openDutyMaster(button.dataset.editDuty);
+      else if (button.dataset.dutyChange) openDutyOverride(button.dataset.dutyChange);
+      else if (button.dataset.dutyEmployeeMove) {
+        const ids = selectedDutyEmployeeIds();
+        const employeeId = button.dataset.employeeId;
+        const index = ids.indexOf(employeeId);
+        const target = button.dataset.dutyEmployeeMove === 'up' ? index - 1 : index + 1;
+        if (index >= 0 && target >= 0 && target < ids.length) {
+          [ids[index], ids[target]] = [ids[target], ids[index]];
+          renderDutyEmployeeChoices(ids);
+        }
+      }
+      else if (button.dataset.toggleDuty) {
+        const duty = S.dutyMasters.find(item => item.id === button.dataset.toggleDuty);
+        if (duty) {
+          duty.active = duty.active === false;
+          try { await saveDutySharedState(); toast(duty.active ? '当番を表示しました' : '当番を非表示にしました'); }
+          catch (error) { duty.active = !duty.active; renderDutyMasters(); renderHomeDutySummary(); toast(error.message); }
+        }
+      }
+      else if (button.dataset.deleteDuty) {
+        const duty = S.dutyMasters.find(item => item.id === button.dataset.deleteDuty);
+        const approved = await confirmDangerAction({ title: '当番を削除しますか？', message: '当番マスターから削除します。', detail: duty?.name || '', confirmText: '削除する' });
+        if (approved && duty) {
+          const beforeMasters = S.dutyMasters.map(normalizeDutyMaster);
+          const beforeOverrides = { ...S.dutyOverrides };
+          S.dutyMasters = S.dutyMasters.filter(item => item.id !== duty.id);
+          Object.keys(S.dutyOverrides).forEach(key => { if (key.startsWith(`${duty.id}:`)) delete S.dutyOverrides[key]; });
+          try { await saveDutySharedState(); toast('当番を削除しました'); }
+          catch (error) { S.dutyMasters = beforeMasters; S.dutyOverrides = beforeOverrides; renderDutyMasters(); renderHomeDutySummary(); toast(error.message); }
+        }
+      }
+      else if (button.id === 'clearDutyOverride') {
+        const dutyId = $('dutyOverrideDutyId').value;
+        const key = dutyWeekKey(dutyId);
+        const before = { ...S.dutyOverrides };
+        delete S.dutyOverrides[key];
+        try { await saveDutySharedState(); $('dutyOverrideDialog').close(); toast('通常担当に戻しました'); }
+        catch (error) { S.dutyOverrides = before; renderHomeDutySummary(); toast(error.message); }
+      }
       else if (button.id === 'actorSettingsButton' || button.id === 'currentActorStatus') {
         renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
         $('actorSettingsError').textContent = '';
@@ -3759,6 +4132,8 @@ async function init() {
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   await load();
   startPolling();
+  clearInterval(S.reminderTimer);
+  S.reminderTimer = setInterval(renderHomeInternalReminder, 60000);
 }
 
 init();
