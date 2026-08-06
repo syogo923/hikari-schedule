@@ -3925,3 +3925,7 @@ input[aria-busy="true"] {
     transform: none !important;
   }
 }
+
+
+/* Ver3.7.1 cat position tweak */
+.duty-cat,.duty-cat-wrap,.duty-card .cat{transform:translate(-8px,4px) scale(.88)!important;transform-origin:bottom right;}
