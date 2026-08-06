@@ -1257,9 +1257,16 @@
             <option value="0">毎週日曜日</option>
           </select>
         </label>
-        <label id="dutyDateField" hidden>実施日
-          <input id="dutyMasterDate" type="date">
-        </label>
+        <div id="dutyDateField" class="duty-date-field" hidden>
+          <label for="dutyMasterDate">実施日</label>
+          <div class="duty-date-picker-row">
+            <input id="dutyMasterDate" type="date">
+            <button type="button" id="addDutyMasterDate" class="secondary">日付を追加</button>
+          </div>
+          <input id="dutyMasterDates" type="hidden" value="[]">
+          <div id="dutyMasterDateList" class="duty-date-list" aria-live="polite"></div>
+          <small>複数の日付を追加できます。選択した日付は「今週の担当」欄に表示されます。</small>
+        </div>
       </fieldset>
       <fieldset class="duty-employee-fieldset">
         <legend>対象職員とローテーション順</legend>
@@ -1281,6 +1288,7 @@
         <button type="button" data-close aria-label="閉じる">×</button>
       </header>
       <input id="dutyOverrideDutyId" type="hidden">
+      <input id="dutyOverrideDate" type="hidden">
       <p id="dutyOverrideCurrent" class="duty-override-current"></p>
       <label>今週の担当
         <select id="dutyOverrideEmployee" required></select>
@@ -1302,7 +1310,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.5-reminder-duty"
+    src="/app.js?v=3.6-duty-multidate"
     defer
   ></script>
 
