@@ -3191,7 +3191,7 @@ input[aria-busy="true"] {
 @keyframes rudyTrailWave {
   0%, 100% {
     transform: translateY(3px) scale(.86);
-    opacity: .25;
+    opacity: .48;
   }
   50% {
     transform: translateY(-5px) scale(1.08);
@@ -3276,7 +3276,7 @@ input[aria-busy="true"] {
 .rudy-trail i {
   width: 4px;
   height: 4px;
-  opacity: .25;
+  opacity: .48;
   animation: rudyFinalTrailWave .92s ease-in-out infinite;
 }
 
@@ -3842,9 +3842,9 @@ input[aria-busy="true"] {
 }
 .home-duty-row.has-duty-cat {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 84px;
+  grid-template-columns: minmax(0, 1fr) 72px;
   align-items: end;
-  min-height: 124px;
+  min-height: 112px;
   padding-right: 10px;
 }
 .home-duty-copy {
@@ -3856,11 +3856,11 @@ input[aria-busy="true"] {
   position: relative;
   align-self: end;
   justify-self: end;
-  width: 76px;
-  height: 114px;
+  width: 64px;
+  height: 96px;
   margin: 0 1px -5px 0;
   pointer-events: none;
-  opacity: .88;
+  opacity: .86;
   filter: drop-shadow(0 3px 4px rgba(36,25,22,.08));
 }
 .duty-cat-mascot img {
@@ -3871,12 +3871,12 @@ input[aria-busy="true"] {
 }
 .duty-cat-sparkle {
   position: absolute;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   opacity: 0;
-  color: #7ab99d;
-  animation: dutyCatSparkle 3s ease-in-out infinite;
-  filter: drop-shadow(0 0 3px rgba(122,185,157,.28));
+  color: #54b995;
+  animation: dutyCatSparkle 2.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 5px rgba(84,185,149,.52));
 }
 .duty-cat-sparkle::before,
 .duty-cat-sparkle::after {
@@ -3894,20 +3894,34 @@ input[aria-busy="true"] {
   transform: translate(-50%, -50%) rotate(90deg);
 }
 .duty-cat-sparkle-one {
-  left: 5px;
-  bottom: 13px;
+  left: 1px;
+  bottom: 12px;
 }
 .duty-cat-sparkle-two {
-  left: 19px;
-  bottom: 5px;
-  animation-delay: 1s;
-  scale: .75;
+  left: 15px;
+  bottom: 3px;
+  animation-delay: .55s;
+  scale: .78;
 }
 .duty-cat-sparkle-three {
-  left: 28px;
-  bottom: 19px;
-  animation-delay: 1.9s;
-  scale: .55;
+  left: 25px;
+  bottom: 17px;
+  animation-delay: 1.15s;
+  scale: .62;
+}
+.duty-cat-sparkle-four {
+  left: 36px;
+  bottom: 7px;
+  animation-delay: 1.7s;
+  scale: .9;
+  color: #8bcfb7;
+}
+.duty-cat-sparkle-five {
+  left: 44px;
+  bottom: 22px;
+  animation-delay: 2.15s;
+  scale: .5;
+  color: #9fdac6;
 }
 @keyframes dutyCatSparkle {
   0%, 36%, 100% {
@@ -3916,10 +3930,10 @@ input[aria-busy="true"] {
     rotate: 0deg;
   }
   48% {
-    opacity: .25;
+    opacity: .48;
   }
   58% {
-    opacity: .8;
+    opacity: 1;
     translate: 0 -1px;
     rotate: 45deg;
   }
@@ -3931,24 +3945,24 @@ input[aria-busy="true"] {
 }
 @media (max-width: 760px) {
   .home-duty-row.has-duty-cat {
-    grid-template-columns: minmax(0, 1fr) 72px;
-    min-height: 110px;
+    grid-template-columns: minmax(0, 1fr) 64px;
+    min-height: 102px;
   }
   .duty-cat-mascot {
-    width: 66px;
-    height: 99px;
+    width: 58px;
+    height: 87px;
     opacity: .84;
   }
 }
 @media (max-width: 420px) {
   .home-duty-row.has-duty-cat {
-    grid-template-columns: minmax(0, 1fr) 60px;
-    min-height: 98px;
+    grid-template-columns: minmax(0, 1fr) 54px;
+    min-height: 92px;
     padding-right: 8px;
   }
   .duty-cat-mascot {
-    width: 56px;
-    height: 84px;
+    width: 50px;
+    height: 75px;
     margin-bottom: -2px;
   }
 }
