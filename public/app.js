@@ -1071,18 +1071,12 @@ function renderHomeDutySummary() {
   if (!host) return;
   const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item => item.active && item.name);
   const rows = duties.flatMap(duty => dutyOccurrencesForCurrentWeek(duty).map(occurrence => ({ duty, occurrence })));
-  const mascot = $('dutyCatMascot');
-  const summaryCard = host.closest('.duty-summary-card');
   if (!rows.length) {
-    if (mascot) mascot.hidden = true;
-    summaryCard?.classList.remove('has-duty-cat');
     host.innerHTML = '<div class="home-assist-empty">今週の当番はありません。<button type="button" class="inline-link" data-open-duty-master>当番マスターを設定</button></div>';
     return;
   }
-  if (mascot) mascot.hidden = false;
-  summaryCard?.classList.add('has-duty-cat');
   rows.sort((a, b) => a.occurrence.localeCompare(b.occurrence) || a.duty.name.localeCompare(b.duty.name));
-  host.innerHTML = rows.map(({ duty, occurrence }) => {
+  host.innerHTML = rows.map(({ duty, occurrence }, index) => {
     const referenceDate = localDateAtMidnight(occurrence);
     const employeeId = assignedDutyEmployeeId(duty, referenceDate);
     const name = employeeId ? employeeName(employeeId) : '対象職員未設定';
@@ -1090,14 +1084,21 @@ function renderHomeDutySummary() {
     const scheduleLabel = duty.scheduleType === 'date'
       ? `日付指定・${jp(occurrence)}`
       : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${jp(occurrence)}`;
-    return `<div class="home-duty-row">
-      <div>
+    const mascotHtml = index === 0 ? `<div class="duty-cat-mascot" aria-hidden="true">
+      <img src="/assets/duty-cat.svg?v=3.6.2" alt="" width="76" height="114">
+      <span class="duty-cat-sparkle duty-cat-sparkle-one"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-two"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-three"></span>
+    </div>` : '';
+    return `<div class="home-duty-row${index === 0 ? ' has-duty-cat' : ''}">
+      <div class="home-duty-copy">
         <span class="home-duty-date">${esc(scheduleLabel)}</span>
         <strong>${esc(duty.name)}</strong>
         <span class="home-duty-person">担当：${esc(name)}</span>
         <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}" data-duty-date="${esc(occurrence)}">担当変更</button>
         ${changed ? `<small class="duty-override-note">※${duty.scheduleType === 'date' ? '今回' : '今週'}のみ変更中</small>` : ''}
       </div>
+      ${mascotHtml}
     </div>`;
   }).join('');
 }
