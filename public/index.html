@@ -1243,14 +1243,24 @@
       </header>
       <input id="dutyMasterId" type="hidden">
       <label>当番名<input id="dutyMasterName" required maxlength="40" placeholder="例：トイレ掃除"></label>
-      <label>実施曜日
-        <select id="dutyMasterWeekday">
-          <option value="1">毎週月曜日</option><option value="2">毎週火曜日</option>
-          <option value="3">毎週水曜日</option><option value="4">毎週木曜日</option>
-          <option value="5" selected>毎週金曜日</option><option value="6">毎週土曜日</option>
-          <option value="0">毎週日曜日</option>
-        </select>
-      </label>
+      <fieldset class="duty-schedule-fieldset">
+        <legend>実施日</legend>
+        <div class="duty-schedule-type" role="radiogroup" aria-label="実施日の指定方法">
+          <label><input id="dutyScheduleWeekly" type="radio" name="dutyScheduleType" value="weekly" checked> 毎週</label>
+          <label><input id="dutyScheduleDate" type="radio" name="dutyScheduleType" value="date"> 日付指定</label>
+        </div>
+        <label id="dutyWeekdayField">実施曜日
+          <select id="dutyMasterWeekday">
+            <option value="1">毎週月曜日</option><option value="2">毎週火曜日</option>
+            <option value="3">毎週水曜日</option><option value="4">毎週木曜日</option>
+            <option value="5" selected>毎週金曜日</option><option value="6">毎週土曜日</option>
+            <option value="0">毎週日曜日</option>
+          </select>
+        </label>
+        <label id="dutyDateField" hidden>実施日
+          <input id="dutyMasterDate" type="date">
+        </label>
+      </fieldset>
       <fieldset class="duty-employee-fieldset">
         <legend>対象職員とローテーション順</legend>
         <p class="muted">上から順番に担当します。矢印で並び替えできます。</p>
