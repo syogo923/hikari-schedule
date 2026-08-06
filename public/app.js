@@ -1,4 +1,4 @@
-/* 光ポータル Ver3.6 Network Edition - 社内リマインダー・複数日付対応当番マスター */
+/* 光ポータル Ver3.6.1 Network Edition - 当番キャラクター実装 */
 /* Ver3.0 RC: code cleanup phase */
 // Ver3.0β4 - Safe Refactoring
 // Ver3.0β3 - Safe Refactoring
@@ -1071,10 +1071,16 @@ function renderHomeDutySummary() {
   if (!host) return;
   const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item => item.active && item.name);
   const rows = duties.flatMap(duty => dutyOccurrencesForCurrentWeek(duty).map(occurrence => ({ duty, occurrence })));
+  const mascot = $('dutyCatMascot');
+  const summaryCard = host.closest('.duty-summary-card');
   if (!rows.length) {
+    if (mascot) mascot.hidden = true;
+    summaryCard?.classList.remove('has-duty-cat');
     host.innerHTML = '<div class="home-assist-empty">今週の当番はありません。<button type="button" class="inline-link" data-open-duty-master>当番マスターを設定</button></div>';
     return;
   }
+  if (mascot) mascot.hidden = false;
+  summaryCard?.classList.add('has-duty-cat');
   rows.sort((a, b) => a.occurrence.localeCompare(b.occurrence) || a.duty.name.localeCompare(b.duty.name));
   host.innerHTML = rows.map(({ duty, occurrence }) => {
     const referenceDate = localDateAtMidnight(occurrence);
