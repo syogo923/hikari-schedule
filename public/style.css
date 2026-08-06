@@ -3760,3 +3760,56 @@ input[aria-busy="true"] {
     grid-column: 2;
   }
 }
+
+/* Ver3.5.1 duty dialog responsive fix and schedule selector */
+.duty-master-dialog {
+  width: min(650px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  overflow-x: hidden;
+}
+.duty-master-dialog form {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 20px;
+  overflow-x: hidden;
+}
+.duty-master-dialog input,
+.duty-master-dialog select,
+.duty-master-dialog fieldset {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+.duty-schedule-fieldset {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #dbe5ed;
+  border-radius: 12px;
+}
+.duty-schedule-fieldset legend { padding: 0 6px; font-weight: 900; }
+.duty-schedule-type { display: flex; flex-wrap: wrap; gap: 8px; }
+.duty-schedule-type label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 120px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid #dce5ed;
+  border-radius: 10px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+.duty-schedule-type input { width: auto; }
+@media(max-width: 640px) {
+  .duty-master-dialog { width: calc(100vw - 16px); max-width: calc(100vw - 16px); }
+  .duty-master-dialog form { padding: 16px; }
+  .duty-schedule-type { display: grid; grid-template-columns: 1fr 1fr; }
+  .duty-schedule-type label { min-width: 0; }
+  .duty-employee-choice { min-width: 0; }
+  .duty-employee-choice label { min-width: 0; overflow-wrap: anywhere; }
+}
