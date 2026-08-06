@@ -1085,10 +1085,12 @@ function renderHomeDutySummary() {
       ? `日付指定・${jp(occurrence)}`
       : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${jp(occurrence)}`;
     const mascotHtml = index === 0 ? `<div class="duty-cat-mascot" aria-hidden="true">
-      <img src="/assets/duty-cat.svg?v=3.6.2" alt="" width="76" height="114">
+      <img src="/assets/duty-cat.svg?v=3.6.3" alt="" width="64" height="96">
       <span class="duty-cat-sparkle duty-cat-sparkle-one"></span>
       <span class="duty-cat-sparkle duty-cat-sparkle-two"></span>
       <span class="duty-cat-sparkle duty-cat-sparkle-three"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-four"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-five"></span>
     </div>` : '';
     return `<div class="home-duty-row${index === 0 ? ' has-duty-cat' : ''}">
       <div class="home-duty-copy">
