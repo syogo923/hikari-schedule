@@ -933,7 +933,9 @@ function normalizeDutyMaster(item = {}) {
   return {
     id: String(item.id || `duty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
     name: safeTrim(item.name),
+    scheduleType: item.scheduleType === 'date' ? 'date' : 'weekly',
     weekday: Math.min(6, Math.max(0, Number(item.weekday ?? 5))),
+    specifiedDate: /^\d{4}-\d{2}-\d{2}$/.test(String(item.specifiedDate || '')) ? String(item.specifiedDate) : '',
     employeeIds,
     anchorWeek: item.anchorWeek || weekStartDate(new Date()),
     active: item.active !== false
@@ -962,11 +964,23 @@ function dutyWeekKey(dutyId, date = new Date()) {
   return `${dutyId}:${weekStartDate(date)}`;
 }
 
+function dutyOverrideKey(duty, date = new Date()) {
+  if (duty.scheduleType === 'date' && duty.specifiedDate) return `${duty.id}:date:${duty.specifiedDate}`;
+  return dutyWeekKey(duty.id, date);
+}
+
+function dutyReferenceDate(duty, date = new Date()) {
+  return duty.scheduleType === 'date' && duty.specifiedDate
+    ? localDateAtMidnight(duty.specifiedDate)
+    : localDateAtMidnight(date);
+}
+
 function activeDutyEmployees(duty) {
   return duty.employeeIds.filter(id => employee(id)?.active !== false);
 }
 
 function dutyOccurrenceDate(duty, date = new Date()) {
+  if (duty.scheduleType === 'date' && duty.specifiedDate) return duty.specifiedDate;
   const monday = localDateAtMidnight(weekStartDate(date));
   const weekdayOffset = duty.weekday === 0 ? 6 : duty.weekday - 1;
   monday.setDate(monday.getDate() + weekdayOffset);
@@ -976,7 +990,8 @@ function dutyOccurrenceDate(duty, date = new Date()) {
 function regularDutyEmployeeId(duty, date = new Date()) {
   const employees = activeDutyEmployees(duty);
   if (!employees.length) return '';
-  const current = localDateAtMidnight(weekStartDate(date));
+  const referenceDate = dutyReferenceDate(duty, date);
+  const current = localDateAtMidnight(weekStartDate(referenceDate));
   const anchor = localDateAtMidnight(duty.anchorWeek || weekStartDate(date));
   const weeks = Math.floor((current - anchor) / 604800000);
   const index = ((weeks % employees.length) + employees.length) % employees.length;
@@ -984,13 +999,13 @@ function regularDutyEmployeeId(duty, date = new Date()) {
 }
 
 function assignedDutyEmployeeId(duty, date = new Date()) {
-  const override = S.dutyOverrides[dutyWeekKey(duty.id, date)];
+  const override = S.dutyOverrides[dutyOverrideKey(duty, date)];
   if (override && employee(override)?.active !== false) return override;
   return regularDutyEmployeeId(duty, date);
 }
 
 function dutyHasOverride(duty, date = new Date()) {
-  return Boolean(S.dutyOverrides[dutyWeekKey(duty.id, date)]);
+  return Boolean(S.dutyOverrides[dutyOverrideKey(duty, date)]);
 }
 
 function internalReminderItemHtml(item, date, groupLabel) {
@@ -1043,23 +1058,30 @@ function renderHomeInternalReminder() {
 function renderHomeDutySummary() {
   const host = $('homeDutySummary');
   if (!host) return;
-  const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item => item.active && item.name);
+  const today = fd(new Date());
+  const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item =>
+    item.active && item.name && (item.scheduleType !== 'date' || !item.specifiedDate || item.specifiedDate >= today)
+  );
   if (!duties.length) {
     host.innerHTML = '<div class="home-assist-empty">当番はまだ登録されていません。<button type="button" class="inline-link" data-open-duty-master>当番マスターを設定</button></div>';
     return;
   }
   host.innerHTML = duties.map(duty => {
-    const employeeId = assignedDutyEmployeeId(duty);
+    const referenceDate = dutyReferenceDate(duty);
+    const employeeId = assignedDutyEmployeeId(duty, referenceDate);
     const name = employeeId ? employeeName(employeeId) : '対象職員未設定';
-    const occurrence = dutyOccurrenceDate(duty);
-    const changed = dutyHasOverride(duty);
+    const occurrence = dutyOccurrenceDate(duty, referenceDate);
+    const changed = dutyHasOverride(duty, referenceDate);
+    const scheduleLabel = duty.scheduleType === 'date'
+      ? `日付指定・${jp(occurrence)}`
+      : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${jp(occurrence)}`;
     return `<div class="home-duty-row">
       <div>
-        <span class="home-duty-date">毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${esc(jp(occurrence))}</span>
+        <span class="home-duty-date">${esc(scheduleLabel)}</span>
         <strong>${esc(duty.name)}</strong>
         <span class="home-duty-person">担当：${esc(name)}</span>
         <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}">担当変更</button>
-        ${changed ? '<small class="duty-override-note">※今週のみ変更中</small>' : ''}
+        ${changed ? `<small class="duty-override-note">※${duty.scheduleType === 'date' ? '今回' : '今週'}のみ変更中</small>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -1096,13 +1118,25 @@ function selectedDutyEmployeeIds() {
     .map(input => input.value);
 }
 
+function updateDutyScheduleFields() {
+  const scheduleType = document.querySelector('input[name="dutyScheduleType"]:checked')?.value || 'weekly';
+  const isDate = scheduleType === 'date';
+  $('dutyWeekdayField').hidden = isDate;
+  $('dutyDateField').hidden = !isDate;
+  $('dutyMasterDate').required = isDate;
+}
+
 function openDutyMaster(id = '') {
   const source = S.dutyMasters.find(item => item.id === id);
   const duty = source ? normalizeDutyMaster(source) : null;
   $('dutyMasterForm')?.reset();
   $('dutyMasterId').value = duty?.id || '';
   $('dutyMasterName').value = duty?.name || '';
+  const scheduleType = duty?.scheduleType || 'weekly';
+  document.querySelector(`input[name="dutyScheduleType"][value="${scheduleType}"]`).checked = true;
   $('dutyMasterWeekday').value = String(duty?.weekday ?? 5);
+  $('dutyMasterDate').value = duty?.specifiedDate || fd(new Date());
+  updateDutyScheduleFields();
   $('dutyMasterHeading').textContent = duty ? '当番を編集' : '当番を追加';
   renderDutyEmployeeChoices(duty?.employeeIds || []);
   $('dutyMasterDialog').showModal();
@@ -1112,16 +1146,17 @@ function openDutyOverride(dutyId) {
   const duty = S.dutyMasters.find(item => item.id === dutyId);
   if (!duty) return;
   const employees = activeDutyEmployees(duty);
-  const regularId = regularDutyEmployeeId(duty);
-  const currentId = assignedDutyEmployeeId(duty);
+  const referenceDate = dutyReferenceDate(duty);
+  const regularId = regularDutyEmployeeId(duty, referenceDate);
+  const currentId = assignedDutyEmployeeId(duty, referenceDate);
   $('dutyOverrideDutyId').value = duty.id;
-  $('dutyOverrideHeading').textContent = `${duty.name}：今週だけ担当変更`;
+  $('dutyOverrideHeading').textContent = `${duty.name}：${duty.scheduleType === 'date' ? '今回' : '今週'}だけ担当変更`;
   $('dutyOverrideCurrent').textContent = `通常担当：${regularId ? employeeName(regularId) : '未設定'}`;
   $('dutyOverrideEmployee').innerHTML = employees
     .map(id => `<option value="${esc(id)}">${esc(employeeName(id))}</option>`)
     .join('');
   $('dutyOverrideEmployee').value = currentId || regularId || employees[0] || '';
-  $('clearDutyOverride').hidden = !dutyHasOverride(duty);
+  $('clearDutyOverride').hidden = !dutyHasOverride(duty, referenceDate);
   $('dutyOverrideDialog').showModal();
 }
 
@@ -1134,7 +1169,7 @@ function renderDutyMasters() {
     return `<article class="duty-master-item ${duty.active ? '' : 'is-inactive'}">
       <div>
         <strong>${esc(duty.name || '名称未設定')}</strong>
-        <span>毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日</span>
+        <span>${duty.scheduleType === 'date' ? `日付指定：${esc(jp(duty.specifiedDate))}` : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日`}</span>
         <small>${esc(members)}</small>
       </div>
       <div class="duty-master-actions">
@@ -3495,6 +3530,10 @@ function bindDelegatedEvents() {
     renderDeadlines();
   });
 
+  document.body.addEventListener('change', event => {
+    if (event.target.matches('input[name="dutyScheduleType"]')) updateDutyScheduleFields();
+  });
+
   document.body.addEventListener('submit', async event => {
     if (event.target.id === 'dutyMasterForm') {
       event.preventDefault();
@@ -3505,12 +3544,15 @@ function bindDelegatedEvents() {
       const duty = normalizeDutyMaster({
         id: id || `duty-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
         name: $('dutyMasterName').value,
+        scheduleType: document.querySelector('input[name="dutyScheduleType"]:checked')?.value || 'weekly',
         weekday: Number($('dutyMasterWeekday').value),
+        specifiedDate: $('dutyMasterDate').value,
         employeeIds,
         anchorWeek: existing?.anchorWeek || weekStartDate(new Date()),
         active: existing?.active !== false
       });
       if (!duty.name) return toast('当番名を入力してください。');
+      if (duty.scheduleType === 'date' && !duty.specifiedDate) return toast('実施日を選択してください。');
       const before = S.dutyMasters.map(normalizeDutyMaster);
       const index = S.dutyMasters.findIndex(item => item.id === duty.id);
       if (index >= 0) S.dutyMasters[index] = duty;
@@ -3534,13 +3576,13 @@ function bindDelegatedEvents() {
       const employeeId = $('dutyOverrideEmployee').value;
       const duty = S.dutyMasters.find(item => item.id === dutyId);
       if (!duty || !employeeId) return;
-      const key = dutyWeekKey(duty.id);
+      const key = dutyOverrideKey(duty, dutyReferenceDate(duty));
       const before = { ...S.dutyOverrides };
       S.dutyOverrides[key] = employeeId;
       try {
         await saveDutySharedState();
         $('dutyOverrideDialog').close();
-        toast('今週の担当を変更しました');
+        toast(duty.scheduleType === 'date' ? '指定日の担当を変更しました' : '今週の担当を変更しました');
       } catch (error) {
         S.dutyOverrides = before;
         renderHomeDutySummary();
@@ -3600,7 +3642,9 @@ function bindDelegatedEvents() {
       }
       else if (button.id === 'clearDutyOverride') {
         const dutyId = $('dutyOverrideDutyId').value;
-        const key = dutyWeekKey(dutyId);
+        const duty = S.dutyMasters.find(item => item.id === dutyId);
+        if (!duty) return;
+        const key = dutyOverrideKey(duty, dutyReferenceDate(duty));
         const before = { ...S.dutyOverrides };
         delete S.dutyOverrides[key];
         try { await saveDutySharedState(); $('dutyOverrideDialog').close(); toast('通常担当に戻しました'); }
