@@ -3832,14 +3832,9 @@ input[aria-busy="true"] {
 
 .duty-date-field[hidden] { display: none !important; }
 
-/* Ver3.6.2 duty character: inside the duty row with subtle sparkle effect */
-.duty-summary-card {
-  overflow: hidden;
-}
-.home-duty-row {
-  position: relative;
-  overflow: hidden;
-}
+/* Ver3.7 duty character: refined placement, sweeping trail and brighter cool sparkles */
+.duty-summary-card { overflow: hidden; }
+.home-duty-row { position: relative; overflow: hidden; }
 .home-duty-row.has-duty-cat {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 72px;
@@ -3847,126 +3842,86 @@ input[aria-busy="true"] {
   min-height: 112px;
   padding-right: 10px;
 }
-.home-duty-copy {
-  min-width: 0;
-  position: relative;
-  z-index: 1;
-}
+.home-duty-copy { min-width: 0; position: relative; z-index: 1; }
 .duty-cat-mascot {
   position: relative;
   align-self: end;
   justify-self: end;
   width: 64px;
   height: 96px;
-  margin: 0 1px -5px 0;
+  margin: 0 6px -8px 0; /* 5px left and 3px lower than Ver3.6.4 */
   pointer-events: none;
   opacity: .86;
   filter: drop-shadow(0 3px 4px rgba(36,25,22,.08));
 }
-.duty-cat-mascot img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
+.duty-cat-mascot img { display:block; width:100%; height:100%; object-fit:contain; }
 .duty-cat-sparkle {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  opacity: 0;
-  color: #54b995;
-  animation: dutyCatSparkle 2.6s ease-in-out infinite;
-  filter: drop-shadow(0 0 5px rgba(84,185,149,.52));
+  position:absolute;
+  width:8px;
+  height:8px;
+  opacity:0;
+  color:#ffffff;
+  animation:dutyCatTrailSparkle 2.45s ease-in-out infinite;
+  filter:drop-shadow(0 0 4px rgba(255,255,255,.95)) drop-shadow(0 0 7px rgba(154,225,255,.78));
 }
-.duty-cat-sparkle::before,
-.duty-cat-sparkle::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
-  transform: translate(-50%, -50%);
+.duty-cat-sparkle::before,.duty-cat-sparkle::after {
+  content:''; position:absolute; left:50%; top:50%; width:100%; height:2px;
+  border-radius:999px; background:currentColor; transform:translate(-50%,-50%);
 }
-.duty-cat-sparkle::after {
-  transform: translate(-50%, -50%) rotate(90deg);
+.duty-cat-sparkle::after { transform:translate(-50%,-50%) rotate(90deg); }
+/* Sparkles follow the broom's swept arc from lower-left toward upper-right. */
+.duty-cat-sparkle-one  { left:-2px; bottom:10px; animation-delay:0s;    scale:.58; }
+.duty-cat-sparkle-two  { left:7px;  bottom:5px;  animation-delay:.18s; scale:.78; color:#f8fdff; }
+.duty-cat-sparkle-three{ left:17px; bottom:4px;  animation-delay:.36s; scale:1;   color:#ffffff; }
+.duty-cat-sparkle-four { left:28px; bottom:8px;  animation-delay:.54s; scale:.82; color:#e9faff; }
+.duty-cat-sparkle-five { left:38px; bottom:15px; animation-delay:.72s; scale:.68; color:#d6f4ff; }
+.duty-cat-sparkle-six  { left:46px; bottom:24px; animation-delay:.90s; scale:.5;  color:#bdeeff; }
+@keyframes dutyCatTrailSparkle {
+  0%, 30%, 100% { opacity:0; translate:-3px 4px; rotate:0deg; }
+  42% { opacity:.35; }
+  53% { opacity:1; translate:0 -1px; rotate:45deg; }
+  68% { opacity:.75; }
+  82% { opacity:0; translate:5px -9px; rotate:105deg; }
 }
-.duty-cat-sparkle-one {
-  left: 1px;
-  bottom: 12px;
+@media (max-width:760px) {
+  .home-duty-row.has-duty-cat { grid-template-columns:minmax(0,1fr) 64px; min-height:102px; }
+  .duty-cat-mascot { width:58px; height:87px; opacity:.84; margin-right:5px; }
 }
-.duty-cat-sparkle-two {
-  left: 15px;
-  bottom: 3px;
-  animation-delay: .55s;
-  scale: .78;
+@media (max-width:420px) {
+  .home-duty-row.has-duty-cat { grid-template-columns:minmax(0,1fr) 54px; min-height:92px; padding-right:8px; }
+  .duty-cat-mascot { width:50px; height:75px; margin:0 4px -5px 0; }
 }
-.duty-cat-sparkle-three {
-  left: 25px;
-  bottom: 17px;
-  animation-delay: 1.15s;
-  scale: .62;
-}
-.duty-cat-sparkle-four {
-  left: 36px;
-  bottom: 7px;
-  animation-delay: 1.7s;
-  scale: .9;
-  color: #8bcfb7;
-}
-.duty-cat-sparkle-five {
-  left: 44px;
-  bottom: 22px;
-  animation-delay: 2.15s;
-  scale: .5;
-  color: #9fdac6;
-}
-@keyframes dutyCatSparkle {
-  0%, 36%, 100% {
-    opacity: 0;
-    translate: 0 4px;
-    rotate: 0deg;
-  }
-  48% {
-    opacity: .48;
-  }
-  58% {
-    opacity: 1;
-    translate: 0 -1px;
-    rotate: 45deg;
-  }
-  72% {
-    opacity: 0;
-    translate: 0 -7px;
-    rotate: 90deg;
-  }
-}
-@media (max-width: 760px) {
-  .home-duty-row.has-duty-cat {
-    grid-template-columns: minmax(0, 1fr) 64px;
-    min-height: 102px;
-  }
-  .duty-cat-mascot {
-    width: 58px;
-    height: 87px;
-    opacity: .84;
-  }
-}
-@media (max-width: 420px) {
-  .home-duty-row.has-duty-cat {
-    grid-template-columns: minmax(0, 1fr) 54px;
-    min-height: 92px;
-    padding-right: 8px;
-  }
-  .duty-cat-mascot {
-    width: 50px;
-    height: 75px;
-    margin-bottom: -2px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .duty-cat-sparkle { animation: none; }
+@media (prefers-reduced-motion:reduce) { .duty-cat-sparkle { animation:none; } }
+
+
+/* Ver3.6.4: Rudy's subtle tail wag. The separated Illustrator tail group is animated only while riding. */
+.rudykun-vector .rudy-tail-part {
+  transform-box: view-box;
+  transform-origin: 301.8px 424.1px;
 }
 
+.rudykun-vector.is-riding .rudy-tail-part {
+  animation: rudyTailWag 1.55s ease-in-out infinite;
+}
+
+.portal-mascot-scene.is-syncing .rudykun-vector .rudy-tail-part {
+  animation-duration: .9s;
+}
+
+.portal-mascot-scene.is-saving .rudykun-vector .rudy-tail-part,
+.portal-mascot-scene.is-waiting .rudykun-vector .rudy-tail-part,
+.portal-mascot-scene.is-error .rudykun-vector .rudy-tail-part {
+  animation-play-state: paused;
+}
+
+@keyframes rudyTailWag {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(3.5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rudykun-vector .rudy-tail-part {
+    animation: none !important;
+    transform: none !important;
+  }
+}
