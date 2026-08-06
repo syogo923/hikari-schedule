@@ -1009,9 +1009,12 @@ function internalReminderItemHtml(item, date, groupLabel) {
       timing = '時刻経過';
     }
   }
-  return `<button type="button" class="home-reminder-item${tone}" data-open-internal-schedule data-internal-id="${esc(item.id)}">
+  const timeHtml = item.time
+    ? `<span class="home-reminder-time">${esc(item.time)}</span>`
+    : '';
+  return `<button type="button" class="home-reminder-item${item.time ? ' has-time' : ''}${tone}" data-open-internal-schedule data-internal-id="${esc(item.id)}">
     <span class="home-reminder-day">${esc(groupLabel)}</span>
-    <span class="home-reminder-time">${esc(item.time || '終日')}</span>
+    ${timeHtml}
     <strong>${esc(item.title)}</strong>
     ${timing ? `<small>${esc(timing)}</small>` : ''}
   </button>`;
@@ -1055,9 +1058,9 @@ function renderHomeDutySummary() {
         <span class="home-duty-date">毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${esc(jp(occurrence))}</span>
         <strong>${esc(duty.name)}</strong>
         <span class="home-duty-person">担当：${esc(name)}</span>
+        <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}">担当変更</button>
         ${changed ? '<small class="duty-override-note">※今週のみ変更中</small>' : ''}
       </div>
-      <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}">担当変更</button>
     </div>`;
   }).join('');
 }
