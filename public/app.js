@@ -1,3 +1,18 @@
+/* 光ポータル Ver3.6.1 Network Edition - 当番キャラクター実装 */
+/* Ver3.0 RC: code cleanup phase */
+// Ver3.0β4 - Safe Refactoring
+// Ver3.0β3 - Safe Refactoring
+/* 光ポータル Ver3.0β2 - Safe Refactoring
+   - コメント整理
+   - セクション整理
+   - 動作変更なし
+*/
+
+// ==========================================
+// 光ポータル Ver3.0β1 リファクタリング版
+// 安全なリファクタリングのみ実施
+// ==========================================
+
 'use strict';
 
 const API = {
@@ -11,7 +26,21 @@ const STORAGE_MATERIALS = 'hikariPortal.materialMasters.v1';
 const STORAGE_ASSIGNEE_PROGRESS = 'hikariPortal.assigneeProgress.v1';
 const STORAGE_TRASH = 'hikariPortal.projectTrash.v1';
 const STORAGE_PROJECT_LIFECYCLE = 'hikariPortal.projectLifecycle.v1';
-const POLL_INTERVAL = 30000;
+const STORAGE_INTERNAL_SCHEDULES = 'hikariPortal.internalSchedules.v1';
+const STORAGE_STICKY_NOTES = 'hikariPortal.stickyNotes.v1';
+const SHARED_PORTAL_SHIP_NO = 'SYS.PORTAL';
+const SHARED_PORTAL_CLIENT = '__HIKARI_PORTAL_SHARED_STATE__';
+const SHARED_PORTAL_SPEC = 'HIKARI_PORTAL_SHARED_STATE_V1';
+const STATUS_SHARED_SHIP_NO = 'SYS.PORTAL.STATUS';
+const STATUS_SHARED_CLIENT = '__HIKARI_PORTAL_STATUS_STATE__';
+const STATUS_SHARED_SPEC = 'HIKARI_PORTAL_STATUS_STATE_V1';
+const MATERIAL_SHARED_SHIP_NO = 'SYS.PORTAL.MATERIAL';
+const MATERIAL_SHARED_CLIENT = '__HIKARI_PORTAL_MATERIAL_STATE__';
+const MATERIAL_SHARED_SPEC = 'HIKARI_PORTAL_MATERIAL_STATE_V1';
+const POLL_INTERVAL = 10000;
+const API_TIMEOUT_MS = 15000;
+const API_GET_RETRY_COUNT = 1;
+const SEARCH_DEBOUNCE_MS = 160;
 
 const S = {
   projects: [],
@@ -30,10 +59,30 @@ const S = {
   materials: [],
   assigneeProgress: {},
   trash: [],
-  projectLifecycle: {}
+  projectLifecycle: {},
+  internalSchedules: [],
+  stickyNotes: {},
+  dutyMasters: [],
+  dutyOverrides: {},
+  reminderTimer: null,
+  calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  calendarQ: '',
+  calendarEmployeeId: '',
+  calendarStatusFilter: '',
+  deadlineEmployeeId: '',
+  deadlineStatusFilter: '',
+  sharedPortalProjectId: '',
+  statusSharedProjectId: '',
+  materialSharedProjectId: '',
+  autoSyncing: false,
+  sharedWritePending: 0,
+  lastAutoSyncAt: ''
 };
 
-const $ = id => document.getElementById(id);
+// 共有データの書き込みを直列化し、同時保存による上書きを防ぐ。
+let sharedPortalWriteQueue = Promise.resolve();
+
+const $ = id => byId(id);
 const fd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 const jp = value => value ? new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(new Date(`${value}T00:00:00`)) : '—';
@@ -43,9 +92,12 @@ function toast(message) {
   const node = $('toast');
   if (!node) return;
   node.textContent = message;
+  node.setAttribute('role', 'status');
+  node.setAttribute('aria-live', 'polite');
   node.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => node.classList.remove('show'), 2400);
+  const duration = String(message || '').length > 36 ? 4200 : 2600;
+  toast.timer = setTimeout(() => node.classList.remove('show'), duration);
 }
 
 function portalConfirm({
@@ -99,22 +151,1334 @@ function portalConfirm({
   });
 }
 
-async function api(url, options = {}) {
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers: options.body ? { 'content-type': 'application/json' } : undefined,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    cache: 'no-store'
+// ==========================
+// Danger Confirmation Helpers
+// ==========================
+
+// ===== Danger Confirm Helpers =====
+// ===== Danger Confirm Helpers =====
+// ===== Danger Confirm Helpers =====
+// ===== Danger Confirm Helpers =====
+// ===== Danger Confirm Helpers =====
+function confirmDangerAction(options) {
+  return portalConfirm({
+    tone: 'danger',
+    icon: '！',
+    ...options
   });
-  let data = {};
-  try { data = await response.json(); } catch {}
-  if (!response.ok) throw new Error(data.error || '通信に失敗しました。');
-  return data;
+}
+
+/* ===== 共通ユーティリティ ===== */
+
+// ===== 共通ユーティリティ =====
+
+function byId(id){ return document.getElementById(id); }
+function isNil(v){ return v===null || v===undefined; }
+
+function safeTrim(v){ return isNil(v) ? '' : String(v).trim(); }
+const API_EMPTY_TEXT = '\u200B';
+function stripApiEmptyText(v){ return String(v ?? '').replace(/\u200B/g, ''); }
+function apiTextOrEmptyPlaceholder(v){ return safeTrim(v) || API_EMPTY_TEXT; }
+async function api(url, options = {}) {
+  const method = options.method || 'GET';
+  const maxAttempts = method === 'GET' ? API_GET_RETRY_COUNT + 1 : 1;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: options.body ? { 'content-type': 'application/json' } : undefined,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        cache: 'no-store',
+        signal: controller.signal
+      });
+
+      let data = {};
+      try { data = await response.json(); } catch {}
+
+      if (!response.ok) {
+        const error = new Error(data.error || `通信に失敗しました。（${response.status}）`);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        method === 'GET' &&
+        attempt < maxAttempts &&
+        (error.name === 'AbortError' || !error.status || error.status >= 500);
+
+      if (!retryable) {
+        if (error.name === 'AbortError') {
+          throw new Error('通信がタイムアウトしました。もう一度お試しください。');
+        }
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('通信に失敗しました。');
+}
+// ===== Common Utility Helpers =====
+const activeFormSubmissions = new WeakSet();
+const recentSubmissionSignatures = new Map();
+
+function formSubmitButton(form) {
+  return form?.querySelector('button[type="submit"], input[type="submit"]') || null;
+}
+
+function beginFormSubmission(form, savingText = '保存中…') {
+  if (!form || activeFormSubmissions.has(form)) return null;
+
+  activeFormSubmissions.add(form);
+  const button = formSubmitButton(form);
+  const state = {
+    button,
+    disabled: button?.disabled ?? false,
+    text: button
+      ? (button.tagName === 'INPUT' ? button.value : button.textContent)
+      : ''
+  };
+
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    if (button.tagName === 'INPUT') button.value = savingText;
+    else button.textContent = savingText;
+  }
+
+  return state;
+}
+
+function endFormSubmission(form, state) {
+  if (state?.button) {
+    state.button.disabled = state.disabled;
+    state.button.removeAttribute('aria-busy');
+    if (state.button.tagName === 'INPUT') state.button.value = state.text;
+    else state.button.textContent = state.text;
+  }
+  if (form) activeFormSubmissions.delete(form);
+}
+
+function isRecentDuplicateSubmission(key, windowMs = 3000) {
+  const now = Date.now();
+  const previous = recentSubmissionSignatures.get(key) || 0;
+
+  for (const [storedKey, timestamp] of recentSubmissionSignatures.entries()) {
+    if (now - timestamp > Math.max(windowMs, 10000)) {
+      recentSubmissionSignatures.delete(storedKey);
+    }
+  }
+
+  if (previous && now - previous < windowMs) return true;
+  recentSubmissionSignatures.set(key, now);
+  return false;
+}
+
+
+function debounce(fn, wait = SEARCH_DEBOUNCE_MS) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
+function isBlank(v){ return safeTrim(v)===''; }
+function isPresent(v){ return !isBlank(v); }
+function coalesce(v, fallback){ return isNil(v) ? fallback : v; }
+
+
+function isScheduleMemoSharedProject(project) {
+  return project?.shipNo === SHARED_PORTAL_SHIP_NO &&
+    (project?.client === SHARED_PORTAL_CLIENT || project?.spec === SHARED_PORTAL_SPEC);
+}
+
+function isStatusSharedProject(project) {
+  return project?.shipNo === STATUS_SHARED_SHIP_NO &&
+    (project?.client === STATUS_SHARED_CLIENT || project?.spec === STATUS_SHARED_SPEC);
+}
+
+
+function isMaterialSharedProject(project) {
+  return project?.shipNo === MATERIAL_SHARED_SHIP_NO &&
+    (
+      project?.client === MATERIAL_SHARED_CLIENT ||
+      project?.spec === MATERIAL_SHARED_SPEC
+    );
+}
+
+function isSharedPortalProject(project) {
+  return isScheduleMemoSharedProject(project) ||
+    isStatusSharedProject(project) ||
+    isMaterialSharedProject(project);
+}
+
+function parseSharedPortalState(project) {
+  if (!project) return null;
+  try {
+    const parsed = JSON.parse(String(project.notes || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+
+function applySharedPortalState(project) {
+  const state = parseSharedPortalState(project);
+  if (!state) return false;
+  S.sharedPortalProjectId = project.id || '';
+  applySharedPortalStateObject(state);
+  return true;
+}
+
+
+function parseStatusSharedState(project) {
+  if (!project) return null;
+  try {
+    const parsed = JSON.parse(String(project.notes || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStatusSharedState(state = {}) {
+  return {
+    version: 1,
+    updatedAt: safeTrim(state.updatedAt),
+    assigneeProgress:
+      state.assigneeProgress &&
+      typeof state.assigneeProgress === 'object' &&
+      !Array.isArray(state.assigneeProgress)
+        ? Object.fromEntries(
+            Object.entries(state.assigneeProgress).map(([projectId, value]) => [
+              projectId,
+              { ...(value || {}) }
+            ])
+          )
+        : {},
+    projectLifecycle:
+      state.projectLifecycle &&
+      typeof state.projectLifecycle === 'object' &&
+      !Array.isArray(state.projectLifecycle)
+        ? Object.fromEntries(
+            Object.entries(state.projectLifecycle).map(([projectId, value]) => [
+              projectId,
+              { ...(value || {}) }
+            ])
+          )
+        : {}
+  };
+}
+
+function applyStatusSharedState(project) {
+  const state = normalizeStatusSharedState(parseStatusSharedState(project) || {});
+  S.statusSharedProjectId = project?.id || '';
+
+  S.assigneeProgress = state.assigneeProgress;
+  S.projectLifecycle = state.projectLifecycle;
+  saveAssigneeProgress();
+  saveProjectLifecycle();
+  return true;
+}
+
+function statusSharedStateBody(state = {}) {
+  const employeeId = sharedPortalEmployeeId();
+  if (!employeeId) throw new Error('共有保存には社員マスタが1名以上必要です。');
+
+  const normalized = normalizeStatusSharedState(state);
+  const payload = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    assigneeProgress: normalized.assigneeProgress,
+    projectLifecycle: normalized.projectLifecycle
+  };
+
+  return {
+    id: S.statusSharedProjectId || '',
+    shipNo: STATUS_SHARED_SHIP_NO,
+    displayName: '進捗・ステータス共有設定',
+    productName: '進捗共有データ',
+    client: STATUS_SHARED_CLIENT,
+    employeeIds: [employeeId],
+    employeeId,
+    dueDate: '2099-12-31',
+    notes: JSON.stringify(payload),
+    quantity: 0,
+    spec: STATUS_SHARED_SPEC,
+    completed: false,
+    ...actorPayload()
+  };
+}
+
+async function fetchLatestStatusSharedProject() {
+  const data = await api(API.projects);
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  const statusProject = projects.find(isStatusSharedProject) || null;
+  if (statusProject?.id) S.statusSharedProjectId = String(statusProject.id);
+  return {
+    statusProject,
+    revision: data.revision ?? data.updatedAt ?? '',
+    projects
+  };
+}
+
+async function writeStatusSharedState(state, existingProject = null) {
+  const result = await api(API.projects, {
+    method: existingProject ? 'PUT' : 'POST',
+    body: statusSharedStateBody(state)
+  });
+
+  const createdId = result?.project?.id || result?.item?.id || result?.id || '';
+  if (!existingProject && createdId) S.statusSharedProjectId = String(createdId);
+  return result;
+}
+
+async function ensureScheduleMemoRecordPreserved(snapshot) {
+  const latest = await api(API.projects);
+  const scheduleProject = (latest.projects || []).find(isScheduleMemoSharedProject) || null;
+  const current = normalizedSharedPortalState(parseSharedPortalState(scheduleProject) || {});
+
+  if (scheduleProject && JSON.stringify(current) === JSON.stringify(normalizedSharedPortalState(snapshot))) {
+    S.sharedPortalProjectId = String(scheduleProject.id || '');
+    return true;
+  }
+
+  S.sharedPortalProjectId = scheduleProject?.id ? String(scheduleProject.id) : '';
+  await api(API.projects, {
+    method: scheduleProject ? 'PUT' : 'POST',
+    body: sharedPortalStateBody(snapshot)
+  });
+
+  const verified = await api(API.projects);
+  const verifiedProject = (verified.projects || []).find(isScheduleMemoSharedProject) || null;
+  const verifiedState = normalizedSharedPortalState(parseSharedPortalState(verifiedProject) || {});
+  if (!verifiedProject || JSON.stringify(verifiedState) !== JSON.stringify(normalizedSharedPortalState(snapshot))) {
+    throw new Error('社内予定・メモの共有レコードを保護できませんでした。');
+  }
+  S.sharedPortalProjectId = String(verifiedProject.id || '');
+  return true;
+}
+
+async function ensureStatusRecordPreserved(snapshot) {
+  const latest = await api(API.projects);
+  const statusProject = (latest.projects || []).find(isStatusSharedProject) || null;
+  const current = normalizeStatusSharedState(parseStatusSharedState(statusProject) || {});
+  const expected = normalizeStatusSharedState(snapshot);
+
+  if (statusProject && JSON.stringify(current) === JSON.stringify(expected)) {
+    S.statusSharedProjectId = String(statusProject.id || '');
+    return true;
+  }
+
+  S.statusSharedProjectId = statusProject?.id ? String(statusProject.id) : '';
+  await writeStatusSharedState(expected, statusProject);
+
+  const verified = await api(API.projects);
+  const verifiedProject = (verified.projects || []).find(isStatusSharedProject) || null;
+  const verifiedState = normalizeStatusSharedState(parseStatusSharedState(verifiedProject) || {});
+  if (!verifiedProject || JSON.stringify(verifiedState) !== JSON.stringify(expected)) {
+    throw new Error('進捗・ステータス共有レコードを保護できませんでした。');
+  }
+  S.statusSharedProjectId = String(verifiedProject.id || '');
+  return true;
+}
+
+function sharedPortalEmployeeId() {
+  if (S.actorEmployeeId && employee(S.actorEmployeeId)?.active !== false) return S.actorEmployeeId;
+  return ordered('employees').find(item => item.active !== false)?.id || '';
+}
+
+
+
+function sharedPortalStateBody(sharedState = {}) {
+  const employeeId = sharedPortalEmployeeId();
+  if (!employeeId) throw new Error('共有保存には社員マスタが1名以上必要です。');
+
+  const state = {
+    version: 3,
+    updatedAt: new Date().toISOString(),
+    internalSchedules: Array.isArray(sharedState.internalSchedules)
+      ? sharedState.internalSchedules
+      : [],
+    stickyNotes:
+      sharedState.stickyNotes &&
+      typeof sharedState.stickyNotes === 'object' &&
+      !Array.isArray(sharedState.stickyNotes)
+        ? sharedState.stickyNotes
+        : {},
+    dutyMasters: Array.isArray(sharedState.dutyMasters)
+      ? sharedState.dutyMasters.map(normalizeDutyMaster)
+      : [],
+    dutyOverrides:
+      sharedState.dutyOverrides &&
+      typeof sharedState.dutyOverrides === 'object' &&
+      !Array.isArray(sharedState.dutyOverrides)
+        ? { ...sharedState.dutyOverrides }
+        : {}
+  };
+
+  return {
+    id: S.sharedPortalProjectId || '',
+    shipNo: SHARED_PORTAL_SHIP_NO,
+    displayName: 'ポータル共有設定',
+    productName: '共有データ',
+    client: SHARED_PORTAL_CLIENT,
+    employeeIds: [employeeId],
+    employeeId,
+    dueDate: '2099-12-31',
+    notes: JSON.stringify(state),
+    quantity: 0,
+    spec: SHARED_PORTAL_SPEC,
+    completed: false,
+    ...actorPayload()
+  };
+}
+
+function hasLocalSharedPortalState() {
+  return S.internalSchedules.length > 0 ||
+    Object.keys(S.stickyNotes).length > 0 ||
+    S.dutyMasters.length > 0 ||
+    Object.keys(S.dutyOverrides).length > 0 ||
+    Object.keys(S.assigneeProgress).length > 0 ||
+    Object.keys(S.projectLifecycle).length > 0;
+}
+
+
+
+function sharedPortalStateSnapshot() {
+  return {
+    internalSchedules: S.internalSchedules.map(item => ({ ...item, dates: [...(item.dates || [])] })),
+    stickyNotes: { ...S.stickyNotes },
+    dutyMasters: S.dutyMasters.map(normalizeDutyMaster),
+    dutyOverrides: { ...S.dutyOverrides },
+    assigneeProgress: Object.fromEntries(
+      Object.entries(S.assigneeProgress).map(([projectId, progress]) => [projectId, { ...(progress || {}) }])
+    ),
+    projectLifecycle: Object.fromEntries(
+      Object.entries(S.projectLifecycle).map(([projectId, lifecycle]) => [projectId, { ...(lifecycle || {}) }])
+    )
+  };
+}
+
+
+function normalizedSharedPortalState(state = {}) {
+  return {
+    internalSchedules: Array.isArray(state.internalSchedules)
+      ? state.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes:
+      state.stickyNotes &&
+      typeof state.stickyNotes === 'object' &&
+      !Array.isArray(state.stickyNotes)
+        ? { ...state.stickyNotes }
+        : {},
+    dutyMasters: Array.isArray(state.dutyMasters)
+      ? state.dutyMasters.map(normalizeDutyMaster)
+      : [],
+    dutyOverrides:
+      state.dutyOverrides &&
+      typeof state.dutyOverrides === 'object' &&
+      !Array.isArray(state.dutyOverrides)
+        ? { ...state.dutyOverrides }
+        : {},
+    assigneeProgress: {},
+    projectLifecycle: {}
+  };
+}
+
+
+function applySharedPortalStateObject(state = {}) {
+  const normalized = normalizedSharedPortalState(state);
+
+  // 共有管理レコードは社内予定と日付メモだけを反映する。
+  // 担当者進捗・製作完了・納品完了は各案件本体へ保存する。
+  S.internalSchedules = normalized.internalSchedules;
+  S.stickyNotes = normalized.stickyNotes;
+  S.dutyMasters = normalized.dutyMasters;
+  S.dutyOverrides = normalized.dutyOverrides;
+
+  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+}
+
+async function fetchLatestSharedPortalProject() {
+  const data = await api(API.projects);
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  const sharedProject = projects.find(isSharedPortalProject) || null;
+  if (sharedProject?.id) S.sharedPortalProjectId = String(sharedProject.id);
+  return { sharedProject, revision: data.revision ?? data.updatedAt ?? '' };
+}
+
+
+
+function queueSharedPortalWrite(task) {
+  const run = sharedPortalWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      S.sharedWritePending += 1;
+      updateSyncStatus('保存中…', 'saving');
+      try {
+        const value = await task();
+        updateSyncStatus('保存済み', 'ready');
+        return value;
+      } catch (error) {
+        updateSyncStatus('通信エラー', 'error');
+        throw error;
+      } finally {
+        S.sharedWritePending = Math.max(0, S.sharedWritePending - 1);
+        if (S.sharedWritePending === 0 && !$('syncStatus')?.classList.contains('is-error')) {
+          setTimeout(() => updateSyncStatus('更新', 'ready'), 900);
+        }
+      }
+    });
+  sharedPortalWriteQueue = run.catch(() => undefined);
+  return run;
+}
+
+
+
+
+
+async function persistSharedPortalMutation(mutator) {
+  return queueSharedPortalWrite(async () => {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const allBefore = await api(API.projects);
+        const sharedProject =
+          (allBefore.projects || []).find(isScheduleMemoSharedProject) ||
+          null;
+
+        if (sharedProject?.id) {
+          S.sharedPortalProjectId = String(sharedProject.id);
+        }
+
+        const merged = normalizedSharedPortalState(
+          parseSharedPortalState(sharedProject) || {}
+        );
+        await mutator(merged);
+
+        const result = await api(API.projects, {
+          method: sharedProject ? 'PUT' : 'POST',
+          body: sharedPortalStateBody(merged)
+        });
+
+        const confirmedData = await api(API.projects);
+        const confirmedProject =
+          (confirmedData.projects || []).find(isScheduleMemoSharedProject) ||
+          null;
+
+        if (!confirmedProject) {
+          throw new Error('社内予定・メモ共有レコードを確認できませんでした。');
+        }
+
+        const confirmedState = normalizedSharedPortalState(
+          parseSharedPortalState(confirmedProject) || {}
+        );
+        const expectedState = normalizedSharedPortalState(merged);
+
+        if (JSON.stringify(confirmedState) !== JSON.stringify(expectedState)) {
+          if (attempt < 3) continue;
+          throw new Error(
+            'ほかのPCと同時更新されたため、保存を再確認できませんでした。'
+          );
+        }
+
+        S.sharedPortalProjectId = String(confirmedProject.id || '');
+        applySharedPortalStateObject(confirmedState);
+        S.revision = String(
+          confirmedData.revision ??
+          confirmedData.updatedAt ??
+          result?.revision ??
+          result?.updatedAt ??
+          S.revision ??
+          ''
+        );
+        return true;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise(resolve =>
+            setTimeout(resolve, 180 * attempt)
+          );
+          continue;
+        }
+      }
+    }
+
+    throw lastError || new Error('共有データを保存できませんでした。');
+  });
+}
+
+async function upsertSharedInternalSchedule(schedule) {
+  const normalized = normalizeInternalSchedule(schedule);
+  return persistSharedPortalMutation(state => {
+    const index = state.internalSchedules.findIndex(item => item.id === normalized.id);
+    if (index >= 0) state.internalSchedules[index] = normalized;
+    else state.internalSchedules.push(normalized);
+  });
+}
+
+async function deleteSharedInternalSchedule(scheduleId) {
+  return persistSharedPortalMutation(state => {
+    state.internalSchedules = state.internalSchedules.filter(item => item.id !== scheduleId);
+  });
+}
+
+async function saveSharedStickyNote(date, text) {
+  return persistSharedPortalMutation(state => {
+    const value = safeTrim(text);
+    if (value) state.stickyNotes[date] = value;
+    else delete state.stickyNotes[date];
+  });
+}
+
+
+
+async function saveSharedProjectRecord(projectId) {
+  return persistSharedProjectState(projectId);
+}
+
+function localPortalBackupPayload() {
+  return {
+    format: 'hikari-portal-local-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sourceActor: employeeName(S.actorEmployeeId),
+    internalSchedules: S.internalSchedules.map(item => ({ ...normalizeInternalSchedule(item) })),
+    stickyNotes: { ...S.stickyNotes },
+    assigneeProgress: Object.fromEntries(
+      Object.entries(S.assigneeProgress).map(([id, value]) => [id, { ...(value || {}) }])
+    ),
+    projectLifecycle: Object.fromEntries(
+      Object.entries(S.projectLifecycle).map(([id, value]) => [id, { ...(value || {}) }])
+    )
+  };
+}
+
+function downloadJsonFile(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportLocalPortalData() {
+  const actor = safeTrim(employeeName(S.actorEmployeeId)).replace(/[\\/:*?"<>|]/g, '_') || 'PC';
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  downloadJsonFile(`光ポータル旧データ_${actor}_${stamp}.json`, localPortalBackupPayload());
+  toast('このPCの旧データを書き出しました');
+}
+
+function mergeLifecycleValue(current = {}, incoming = {}) {
+  const rank = { in_progress: 0, production_complete: 1, delivered: 2 };
+  return (rank[incoming.status] ?? 0) > (rank[current.status] ?? 0)
+    ? { ...incoming }
+    : { ...current };
+}
+
+function mergePortalBackupIntoState(state, backup = {}) {
+  const schedules = Array.isArray(backup.internalSchedules) ? backup.internalSchedules : [];
+  schedules.map(normalizeInternalSchedule).forEach(schedule => {
+    const index = state.internalSchedules.findIndex(item => item.id === schedule.id);
+    if (index < 0) state.internalSchedules.push(schedule);
+    else {
+      const current = state.internalSchedules[index];
+      state.internalSchedules[index] = {
+        ...current,
+        ...schedule,
+        dates: [...new Set([...(current.dates || []), ...(schedule.dates || [])])].sort()
+      };
+    }
+  });
+
+  const notes = backup.stickyNotes && typeof backup.stickyNotes === 'object' ? backup.stickyNotes : {};
+  Object.entries(notes).forEach(([date, value]) => {
+    const incoming = safeTrim(value);
+    if (!incoming) return;
+    const current = safeTrim(state.stickyNotes[date]);
+    if (!current) state.stickyNotes[date] = incoming;
+    else if (current !== incoming) state.stickyNotes[date] = [...new Set([current, incoming])].join(' ／ ');
+  });
+
+  const progress = backup.assigneeProgress && typeof backup.assigneeProgress === 'object' ? backup.assigneeProgress : {};
+  Object.entries(progress).forEach(([projectId, values]) => {
+    const current = state.assigneeProgress[projectId] || {};
+    state.assigneeProgress[projectId] = { ...current };
+    Object.entries(values || {}).forEach(([employeeId, completed]) => {
+      state.assigneeProgress[projectId][employeeId] = current[employeeId] === true || completed === true;
+    });
+  });
+
+  const lifecycle = backup.projectLifecycle && typeof backup.projectLifecycle === 'object' ? backup.projectLifecycle : {};
+  Object.entries(lifecycle).forEach(([projectId, value]) => {
+    state.projectLifecycle[projectId] = mergeLifecycleValue(state.projectLifecycle[projectId] || {}, value || {});
+  });
+}
+
+async function importAndMergePortalBackups(files) {
+  const list = [...files];
+  if (!list.length) return toast('結合するJSONファイルを選択してください。');
+
+  const backups = [];
+  for (const file of list) {
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error(`${file.name} を読み込めませんでした。`);
+    }
+    if (!parsed || typeof parsed !== 'object') throw new Error(`${file.name} の形式が正しくありません。`);
+    backups.push(parsed);
+  }
+
+  await persistSharedPortalMutation(state => {
+    backups.forEach(backup => mergePortalBackupIntoState(state, backup));
+  });
+
+  renderSchedule();
+  renderCalendar();
+  renderDeadlines();
+  renderInternalScheduleList();
+  toast(`${backups.length}台分のデータを共有へ結合しました`);
+}
+
+
+async function persistSharedPortalPatch(patch = {}) {
+  return persistSharedPortalMutation(state => {
+    if (Object.prototype.hasOwnProperty.call(patch, 'internalSchedules')) {
+      state.internalSchedules = patch.internalSchedules.map(normalizeInternalSchedule);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'stickyNotes')) {
+      state.stickyNotes = { ...(patch.stickyNotes || {}) };
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'dutyMasters')) {
+      state.dutyMasters = (patch.dutyMasters || []).map(normalizeDutyMaster);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'dutyOverrides')) {
+      state.dutyOverrides = { ...(patch.dutyOverrides || {}) };
+    }
+
+    // 担当者進捗と案件ステータスは案件本体へ保存する。
+  });
+}
+
+async function persistSharedPortalState() {
+  return persistSharedPortalPatch({
+    internalSchedules: S.internalSchedules,
+    stickyNotes: S.stickyNotes,
+    dutyMasters: S.dutyMasters,
+    dutyOverrides: S.dutyOverrides,
+    assigneeProgress: S.assigneeProgress,
+    projectLifecycle: S.projectLifecycle
+  });
+}
+
+function loadInternalTools() {
+  try {
+    const schedules = JSON.parse(localStorage.getItem(STORAGE_INTERNAL_SCHEDULES) || '[]');
+    S.internalSchedules = Array.isArray(schedules) ? schedules : [];
+  } catch { S.internalSchedules = []; }
+  try {
+    const notes = JSON.parse(localStorage.getItem(STORAGE_STICKY_NOTES) || '{}');
+    S.stickyNotes = notes && typeof notes === 'object' && !Array.isArray(notes) ? notes : {};
+  } catch { S.stickyNotes = {}; }
+}
+
+
+async function saveInternalSchedules(changedSchedule = null) {
+  localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+  if (changedSchedule) await upsertSharedInternalSchedule(changedSchedule);
+  else await persistSharedPortalPatch({ internalSchedules: S.internalSchedules });
+  renderSchedule();
+  renderCalendar();
+  renderInternalScheduleList();
+  renderHomeInternalReminder();
+}
+
+
+async function saveStickyNotes(changedDate = '') {
+  localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+  if (changedDate) await saveSharedStickyNote(changedDate, S.stickyNotes[changedDate] || '');
+  else await persistSharedPortalPatch({ stickyNotes: S.stickyNotes });
+  renderSchedule();
+}
+
+
+const DUTY_WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function normalizeDutyMaster(item = {}) {
+  const employeeIds = [...new Set(
+    (Array.isArray(item.employeeIds) ? item.employeeIds : [])
+      .map(String)
+      .filter(Boolean)
+  )];
+  return {
+    id: String(item.id || `duty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    name: safeTrim(item.name),
+    scheduleType: item.scheduleType === 'date' ? 'date' : 'weekly',
+    weekday: Math.min(6, Math.max(0, Number(item.weekday ?? 5))),
+    specifiedDates: [...new Set(
+      (Array.isArray(item.specifiedDates) ? item.specifiedDates : [item.specifiedDate])
+        .map(String)
+        .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value))
+    )].sort(),
+    employeeIds,
+    anchorWeek: item.anchorWeek || weekStartDate(new Date()),
+    active: item.active !== false
+  };
+}
+
+function localDateAtMidnight(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(`${value}T00:00:00`);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function weekStartDate(value = new Date()) {
+  const date = localDateAtMidnight(value);
+  const offset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - offset);
+  return fd(date);
+}
+
+function addDateDays(value, days) {
+  const date = localDateAtMidnight(value);
+  date.setDate(date.getDate() + Number(days || 0));
+  return fd(date);
+}
+
+function dutyWeekKey(dutyId, date = new Date()) {
+  return `${dutyId}:${weekStartDate(date)}`;
+}
+
+function dutyOverrideKey(duty, date = new Date()) {
+  const referenceDate = fd(localDateAtMidnight(date));
+  if (duty.scheduleType === 'date') return `${duty.id}:date:${referenceDate}`;
+  return dutyWeekKey(duty.id, date);
+}
+
+function dutyReferenceDate(duty, date = new Date()) {
+  return localDateAtMidnight(date);
+}
+
+function activeDutyEmployees(duty) {
+  return duty.employeeIds.filter(id => employee(id)?.active !== false);
+}
+
+function dutyOccurrenceDate(duty, date = new Date()) {
+  if (duty.scheduleType === 'date') return fd(localDateAtMidnight(date));
+  const monday = localDateAtMidnight(weekStartDate(date));
+  const weekdayOffset = duty.weekday === 0 ? 6 : duty.weekday - 1;
+  monday.setDate(monday.getDate() + weekdayOffset);
+  return fd(monday);
+}
+
+function dutyOccurrencesForCurrentWeek(duty, date = new Date()) {
+  if (duty.scheduleType !== 'date') return [dutyOccurrenceDate(duty, date)];
+  const today = fd(date);
+  const weekStart = weekStartDate(date);
+  const weekEnd = addDateDays(weekStart, 6);
+  return duty.specifiedDates.filter(value => value >= today && value >= weekStart && value <= weekEnd);
+}
+
+function regularDutyEmployeeId(duty, date = new Date()) {
+  const employees = activeDutyEmployees(duty);
+  if (!employees.length) return '';
+  const referenceDate = dutyReferenceDate(duty, date);
+  const current = localDateAtMidnight(weekStartDate(referenceDate));
+  const anchor = localDateAtMidnight(duty.anchorWeek || weekStartDate(date));
+  const weeks = Math.floor((current - anchor) / 604800000);
+  const index = ((weeks % employees.length) + employees.length) % employees.length;
+  return employees[index] || '';
+}
+
+function assignedDutyEmployeeId(duty, date = new Date()) {
+  const override = S.dutyOverrides[dutyOverrideKey(duty, date)];
+  if (override && employee(override)?.active !== false) return override;
+  return regularDutyEmployeeId(duty, date);
+}
+
+function dutyHasOverride(duty, date = new Date()) {
+  return Boolean(S.dutyOverrides[dutyOverrideKey(duty, date)]);
+}
+
+function internalReminderItemHtml(item, date, groupLabel) {
+  const now = new Date();
+  const isToday = date === fd(now);
+  let tone = '';
+  let timing = '';
+  if (isToday && item.time) {
+    const start = new Date(`${date}T${item.time}:00`);
+    const diff = start.getTime() - now.getTime();
+    if (diff >= 0 && diff <= 60 * 60 * 1000) {
+      tone = ' is-soon';
+      timing = diff < 60 * 1000 ? 'まもなく' : `あと${Math.max(1, Math.ceil(diff / 60000))}分`;
+    } else if (diff < 0) {
+      tone = ' is-past';
+      timing = '時刻経過';
+    }
+  }
+  const timeHtml = item.time
+    ? `<span class="home-reminder-time">${esc(item.time)}</span>`
+    : '';
+  return `<button type="button" class="home-reminder-item${item.time ? ' has-time' : ''}${tone}" data-open-internal-schedule data-internal-id="${esc(item.id)}">
+    <span class="home-reminder-day">${esc(groupLabel)}</span>
+    ${timeHtml}
+    <strong>${esc(item.title)}</strong>
+    ${timing ? `<small>${esc(timing)}</small>` : ''}
+  </button>`;
+}
+
+function renderHomeInternalReminder() {
+  const host = $('homeInternalReminder');
+  if (!host) return;
+  const today = fd(new Date());
+  const tomorrow = addDateDays(today, 1);
+  const todayItems = internalSchedulesForDate(today)
+    .sort((a,b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')));
+  const tomorrowItems = internalSchedulesForDate(tomorrow)
+    .sort((a,b) => String(a.time || '99:99').localeCompare(String(b.time || '99:99')));
+
+  const html = [
+    ...todayItems.map(item => internalReminderItemHtml(item, today, '今日')),
+    ...tomorrowItems.map(item => internalReminderItemHtml(item, tomorrow, '明日'))
+  ];
+
+  host.innerHTML = html.length
+    ? html.join('')
+    : '<div class="home-assist-empty">今日・明日の社内予定はありません。</div>';
+}
+
+function renderHomeDutySummary() {
+  const host = $('homeDutySummary');
+  if (!host) return;
+  const duties = S.dutyMasters.map(normalizeDutyMaster).filter(item => item.active && item.name);
+  const rows = duties.flatMap(duty => dutyOccurrencesForCurrentWeek(duty).map(occurrence => ({ duty, occurrence })));
+  if (!rows.length) {
+    host.innerHTML = '<div class="home-assist-empty">今週の当番はありません。<button type="button" class="inline-link" data-open-duty-master>当番マスターを設定</button></div>';
+    return;
+  }
+  rows.sort((a, b) => a.occurrence.localeCompare(b.occurrence) || a.duty.name.localeCompare(b.duty.name));
+  host.innerHTML = rows.map(({ duty, occurrence }, index) => {
+    const referenceDate = localDateAtMidnight(occurrence);
+    const employeeId = assignedDutyEmployeeId(duty, referenceDate);
+    const name = employeeId ? employeeName(employeeId) : '対象職員未設定';
+    const changed = dutyHasOverride(duty, referenceDate);
+    const scheduleLabel = duty.scheduleType === 'date'
+      ? `日付指定・${jp(occurrence)}`
+      : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日・${jp(occurrence)}`;
+    const mascotHtml = index === 0 ? `<div class="duty-cat-mascot" aria-hidden="true">
+      <img src="/assets/duty-cat.svg?v=3.7" alt="" width="64" height="96">
+      <span class="duty-cat-sparkle duty-cat-sparkle-one"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-two"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-three"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-four"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-five"></span>
+      <span class="duty-cat-sparkle duty-cat-sparkle-six"></span>
+    </div>` : '';
+    return `<div class="home-duty-row${index === 0 ? ' has-duty-cat' : ''}">
+      <div class="home-duty-copy">
+        <span class="home-duty-date">${esc(scheduleLabel)}</span>
+        <strong>${esc(duty.name)}</strong>
+        <span class="home-duty-person">担当：${esc(name)}</span>
+        <button type="button" class="inline-link duty-change-link" data-duty-change="${esc(duty.id)}" data-duty-date="${esc(occurrence)}">担当変更</button>
+        ${changed ? `<small class="duty-override-note">※${duty.scheduleType === 'date' ? '今回' : '今週'}のみ変更中</small>` : ''}
+      </div>
+      ${mascotHtml}
+    </div>`;
+  }).join('');
+}
+
+function renderHomeAssist() {
+  renderHomeInternalReminder();
+  renderHomeDutySummary();
+}
+
+function renderDutyEmployeeChoices(selectedIds = []) {
+  const host = $('dutyEmployeeChoices');
+  if (!host) return;
+  const selected = [...selectedIds];
+  const all = ordered('employees').filter(item => item.active !== false);
+  const rows = [
+    ...selected.map(id => all.find(item => item.id === id)).filter(Boolean),
+    ...all.filter(item => !selected.includes(item.id))
+  ];
+  host.innerHTML = rows.map((item, index) => {
+    const checked = selected.includes(item.id);
+    return `<div class="duty-employee-choice ${checked ? 'is-selected' : ''}" data-duty-employee-row="${esc(item.id)}">
+      <label><input type="checkbox" value="${esc(item.id)}" ${checked ? 'checked' : ''}><span>${esc(item.name)}</span></label>
+      <div class="duty-order-actions">
+        <button type="button" data-duty-employee-move="up" data-employee-id="${esc(item.id)}" ${!checked || index === 0 ? 'disabled' : ''} aria-label="${esc(item.name)}を上へ">↑</button>
+        <button type="button" data-duty-employee-move="down" data-employee-id="${esc(item.id)}" ${!checked ? 'disabled' : ''} aria-label="${esc(item.name)}を下へ">↓</button>
+      </div>
+    </div>`;
+  }).join('') || '<div class="notice">職員マスタを先に登録してください。</div>';
+}
+
+function selectedDutyEmployeeIds() {
+  return [...document.querySelectorAll('#dutyEmployeeChoices input[type="checkbox"]:checked')]
+    .map(input => input.value);
+}
+
+function getDutyMasterDates() {
+  try {
+    const values = JSON.parse($('dutyMasterDates')?.value || '[]');
+    return [...new Set(Array.isArray(values) ? values.filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)) : [])].sort();
+  } catch { return []; }
+}
+
+function setDutyMasterDates(dates = []) {
+  const values = [...new Set(dates.filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value)))].sort();
+  if ($('dutyMasterDates')) $('dutyMasterDates').value = JSON.stringify(values);
+  const host = $('dutyMasterDateList');
+  if (!host) return;
+  host.innerHTML = values.length
+    ? values.map(date => `<span class="duty-date-chip"><span>${esc(jp(date))}</span><button type="button" data-remove-duty-date="${esc(date)}" aria-label="${esc(jp(date))}を削除">×</button></span>`).join('')
+    : '<span class="duty-date-empty">日付はまだ追加されていません。</span>';
+}
+
+function updateDutyScheduleFields() {
+  const scheduleType = document.querySelector('input[name="dutyScheduleType"]:checked')?.value || 'weekly';
+  const isDate = scheduleType === 'date';
+  $('dutyWeekdayField').hidden = isDate;
+  $('dutyDateField').hidden = !isDate;
+  $('dutyMasterDate').required = false;
+}
+
+function openDutyMaster(id = '') {
+  const source = S.dutyMasters.find(item => item.id === id);
+  const duty = source ? normalizeDutyMaster(source) : null;
+  $('dutyMasterForm')?.reset();
+  $('dutyMasterId').value = duty?.id || '';
+  $('dutyMasterName').value = duty?.name || '';
+  const scheduleType = duty?.scheduleType || 'weekly';
+  document.querySelector(`input[name="dutyScheduleType"][value="${scheduleType}"]`).checked = true;
+  $('dutyMasterWeekday').value = String(duty?.weekday ?? 5);
+  $('dutyMasterDate').value = fd(new Date());
+  setDutyMasterDates(duty?.specifiedDates || []);
+  updateDutyScheduleFields();
+  $('dutyMasterHeading').textContent = duty ? '当番を編集' : '当番を追加';
+  renderDutyEmployeeChoices(duty?.employeeIds || []);
+  $('dutyMasterDialog').showModal();
+}
+
+function openDutyOverride(dutyId, occurrenceDate = '') {
+  const duty = S.dutyMasters.find(item => item.id === dutyId);
+  if (!duty) return;
+  const employees = activeDutyEmployees(duty);
+  const referenceDate = dutyReferenceDate(duty, occurrenceDate || new Date());
+  const regularId = regularDutyEmployeeId(duty, referenceDate);
+  const currentId = assignedDutyEmployeeId(duty, referenceDate);
+  $('dutyOverrideDutyId').value = duty.id;
+  $('dutyOverrideDate').value = fd(referenceDate);
+  $('dutyOverrideHeading').textContent = `${duty.name}：${duty.scheduleType === 'date' ? '今回' : '今週'}だけ担当変更`;
+  $('dutyOverrideCurrent').textContent = `通常担当：${regularId ? employeeName(regularId) : '未設定'}`;
+  $('dutyOverrideEmployee').innerHTML = employees
+    .map(id => `<option value="${esc(id)}">${esc(employeeName(id))}</option>`)
+    .join('');
+  $('dutyOverrideEmployee').value = currentId || regularId || employees[0] || '';
+  $('clearDutyOverride').hidden = !dutyHasOverride(duty, referenceDate);
+  $('dutyOverrideDialog').showModal();
+}
+
+function renderDutyMasters() {
+  const host = $('dutyMasterList');
+  if (!host) return;
+  const duties = S.dutyMasters.map(normalizeDutyMaster);
+  host.innerHTML = duties.length ? duties.map(duty => {
+    const members = activeDutyEmployees(duty).map(employeeName).join(' → ') || '対象職員未設定';
+    return `<article class="duty-master-item ${duty.active ? '' : 'is-inactive'}">
+      <div>
+        <strong>${esc(duty.name || '名称未設定')}</strong>
+        <span>${duty.scheduleType === 'date' ? `日付指定：${duty.specifiedDates.length ? duty.specifiedDates.map(jp).map(esc).join('・') : '未設定'}` : `毎週${DUTY_WEEKDAY_LABELS[duty.weekday]}曜日`}</span>
+        <small>${esc(members)}</small>
+      </div>
+      <div class="duty-master-actions">
+        <button type="button" class="secondary" data-edit-duty="${esc(duty.id)}">編集</button>
+        <button type="button" class="secondary" data-toggle-duty="${esc(duty.id)}">${duty.active ? '非表示' : '表示'}</button>
+        <button type="button" class="danger" data-delete-duty="${esc(duty.id)}">削除</button>
+      </div>
+    </article>`;
+  }).join('') : '<div class="notice">当番はまだ登録されていません。</div>';
+}
+
+async function saveDutySharedState() {
+  await persistSharedPortalPatch({
+    dutyMasters: S.dutyMasters,
+    dutyOverrides: S.dutyOverrides
+  });
+  renderDutyMasters();
+  renderHomeDutySummary();
+}
+
+function normalizeInternalSchedule(item = {}) {
+  // 旧版の「毎週」予定は、読み込み時に単発扱いへは変換せず一覧に残す。
+  // 編集・新規登録時は monthly / yearly / once のみを使用する。
+  return {
+    id: item.id || `internal-${Date.now()}`,
+    title: safeTrim(item.title),
+    type: ['monthly', 'yearly', 'once'].includes(item.type) ? item.type : 'once',
+    day: Number(item.day || 1),
+    month: Number(item.month || 1),
+    date: item.date || '',
+    dates: [...new Set((Array.isArray(item.dates) ? item.dates : [item.date]).filter(Boolean))].sort(),
+    time: item.time || '',
+    note: safeTrim(item.note)
+  };
+}
+
+function internalSchedulesForDate(date) {
+  const target = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return [];
+  return S.internalSchedules.map(normalizeInternalSchedule).filter(item => {
+    if (item.type === 'once') return item.dates.includes(date);
+    if (item.type === 'yearly') {
+      return Number(item.month) === target.getMonth() + 1 && Number(item.day) === target.getDate();
+    }
+    return Number(item.day) === target.getDate();
+  });
+}
+
+function internalScheduleTypeLabel(item) {
+  if (item.type === 'once') return item.dates.length ? item.dates.map(jp).join('・') : '日付未設定';
+  if (item.type === 'yearly') return `毎年${Number(item.month) || 1}月${Number(item.day) || 1}日`;
+  return `毎月${Number(item.day) || 1}日`;
+}
+
+function internalScheduleHtml(date) {
+  const items = internalSchedulesForDate(date);
+  if (!items.length) return '<button type="button" class="internal-empty" data-open-internal-schedule>＋</button>';
+  return items.map(item => `<button type="button" class="internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}"><small>${esc(item.time || '')}${item.type !== 'once' ? ` ${esc(internalScheduleTypeLabel(item))}` : ''}</small><strong>${esc(item.title)}</strong>${item.note ? `<span>${esc(item.note)}</span>` : ''}</button>`).join('');
+}
+
+function stickyNoteCellHtml(date) {
+  const text = safeTrim(S.stickyNotes[date]);
+  const label = text ? `メモあり：${text}` : 'メモを入力';
+  return `<button type="button" class="date-memo-button ${text ? 'has-note' : ''}" data-sticky-date="${esc(date)}" title="${esc(label)}" aria-label="${esc(label)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h11A2.5 2.5 0 0 1 20 7v8a2.5 2.5 0 0 1-2.5 2.5H13l-4.2 3v-3H6.5A2.5 2.5 0 0 1 4 15V7a2.5 2.5 0 0 1 2.5-2.5Z"/><path d="M8 9h8M8 12h6"/></svg><span class="sr-only">${esc(label)}</span></button>`;
+}
+
+function getInternalScheduleDates() {
+  try {
+    const values = JSON.parse($('internalScheduleDates')?.value || '[]');
+    return [...new Set(Array.isArray(values) ? values.filter(Boolean) : [])].sort();
+  } catch { return []; }
+}
+
+function setInternalScheduleDates(dates = []) {
+  const values = [...new Set(dates.filter(Boolean))].sort();
+  if ($('internalScheduleDates')) $('internalScheduleDates').value = JSON.stringify(values);
+  const host = $('internalScheduleDateList');
+  if (!host) return;
+  host.innerHTML = values.length
+    ? values.map(date => `<span class="internal-date-chip"><span>${esc(jp(date))}</span><button type="button" data-remove-internal-date="${esc(date)}" aria-label="${esc(jp(date))}を削除">×</button></span>`).join('')
+    : '<span class="internal-date-empty">日付はまだ追加されていません。</span>';
+}
+
+function renderInternalScheduleList() {
+  const host = $('internalScheduleList');
+  if (!host) return;
+  const items = S.internalSchedules.map(normalizeInternalSchedule).sort((a,b) => String(a.date || '').localeCompare(String(b.date || '')) || Number(a.day)-Number(b.day) || String(a.time||'').localeCompare(String(b.time||'')));
+  host.innerHTML = items.length ? items.map(item => `<article class="internal-schedule-row"><div><strong>${esc(item.title)}</strong><span>${esc(internalScheduleTypeLabel(item))}${item.time ? ` ${esc(item.time)}` : ''}</span>${item.note ? `<small>${esc(item.note)}</small>` : ''}</div><div><button type="button" class="secondary" data-edit-internal="${esc(item.id)}">編集</button><button type="button" class="danger" data-delete-internal="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">社内予定はまだ登録されていません。</div>';
+}
+
+function resetInternalScheduleForm() {
+  $('internalScheduleForm')?.reset();
+  $('internalScheduleId').value = '';
+  $('internalScheduleType').value = 'monthly';
+  $('internalScheduleDay').value = '1';
+  $('internalScheduleDate').value = '';
+  setInternalScheduleDates([]);
+  updateInternalScheduleTypeUi();
+}
+
+function updateInternalScheduleTypeUi() {
+  const type = $('internalScheduleType')?.value || 'monthly';
+  if ($('internalDayLabel')) $('internalDayLabel').hidden = type !== 'monthly';
+  if ($('internalDateLabel')) $('internalDateLabel').hidden = type !== 'once';
+}
+
+function openInternalSchedule(id = '') {
+  resetInternalScheduleForm();
+  const source = S.internalSchedules.find(x => x.id === id);
+  const item = source ? normalizeInternalSchedule(source) : null;
+  if (item) {
+    $('internalScheduleId').value = item.id;
+    $('internalScheduleTitle').value = item.title || '';
+    $('internalScheduleType').value = item.type === 'once' ? 'once' : 'monthly';
+    $('internalScheduleDay').value = String(item.day || 1);
+    $('internalScheduleDate').value = '';
+    setInternalScheduleDates(item.dates);
+    $('internalScheduleTime').value = item.time || '';
+    $('internalScheduleNote').value = item.note || '';
+    updateInternalScheduleTypeUi();
+  }
+  renderInternalScheduleList();
+  $('internalScheduleDialog').showModal();
+}
+
+function openStickyNote(date) {
+  $('stickyNoteDate').value = date;
+  $('stickyNoteTitle').textContent = `${jp(date)}のメモ`;
+  $('stickyNoteText').value = S.stickyNotes[date] || '';
+  $('stickyNoteDialog').showModal();
+  requestAnimationFrame(() => $('stickyNoteText').focus());
+}
+
+function clientInitial(client) {
+  const text = safeTrim(client);
+  return text ? Array.from(text)[0] : '';
+}
+
+function calendarProjectBadge(group) {
+  const project = group.representative;
+  const status = groupLifecycleStatus(group);
+  const initial = clientInitial(project.client);
+  return `<button type="button" class="calendar-project status-${esc(status)}" data-group-detail="${esc(project.id)}" title="${esc(project.client || '')} ${esc(project.shipNo)} ${esc(project.displayName || '')}">${initial ? `<span class="calendar-client-initial" aria-label="得意先 ${esc(project.client)}">${esc(initial)}</span>` : ''}<strong>${esc(project.shipNo || '—')}</strong>${project.displayName ? `<span class="calendar-project-name">${esc(project.displayName)}</span>` : ''}</button>`;
+}
+
+function calendarInternalScheduleBadge(item) {
+  return `<button type="button" class="calendar-internal-event" data-open-internal-schedule data-internal-id="${esc(item.id)}" title="${esc(internalScheduleTypeLabel(item))} ${esc(item.title)}"><span class="calendar-internal-mark">社</span><strong>${esc(item.time || '')}</strong><span>${esc(item.title)}</span></button>`;
+}
+
+
+function groupIsOverdue(group) {
+  if (groupLifecycleStatus(group) === 'delivered') return false;
+  const today = fd(new Date());
+  return group.dueDates.some(date => date && date < today);
+}
+
+function groupMatchesStatusFilter(group, filter) {
+  if (!filter) return true;
+  if (filter === 'overdue') return groupIsOverdue(group);
+  if (filter === 'no_due') return group.dueDates.length === 0;
+  return groupLifecycleStatus(group) === filter;
+}
+
+function fillEmployeeFilter(selectId, selectedId = '') {
+  const select = $(selectId);
+  if (!select) return;
+  select.innerHTML = '<option value="">全担当者</option>' +
+    ordered('employees')
+      .filter(item => item.active !== false)
+      .map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`)
+      .join('');
+  select.value = selectedId;
+}
+
+
+function renderCalendar() {
+  const host = $('monthlyCalendar');
+  if (!host) return;
+
+  const year = S.calendarMonth.getFullYear();
+  const month = S.calendarMonth.getMonth();
+  $('calendarMonth').textContent = `${year}年${month + 1}月`;
+
+  fillEmployeeFilter('calendarEmployeeFilter', S.calendarEmployeeId);
+  if ($('calendarStatusFilter')) $('calendarStatusFilter').value = S.calendarStatusFilter;
+
+  const q = safeTrim(S.calendarQ).toLowerCase();
+  const groups = groupProjects(S.projects).filter(group => {
+    const project = group.representative;
+    const text = [
+      project.shipNo,
+      project.displayName,
+      project.client,
+      groupEmployeeNames(group)
+    ].join(' ').toLowerCase();
+
+    return (!q || text.includes(q)) &&
+      (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId)) &&
+      groupMatchesStatusFilter(group, S.calendarStatusFilter);
+  });
+
+  if ($('calendarResultCount')) $('calendarResultCount').textContent = `${groups.length}案件`;
+
+  const byDate = new Map();
+  groups.forEach(group => {
+    group.dueDates.forEach(date => {
+      if (!byDate.has(date)) byDate.set(date, []);
+      byDate.get(date).push(group);
+    });
+  });
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  const prevDays = new Date(year, month, 0).getDate();
+  const cells = [];
+
+  for (let i = 0; i < 42; i += 1) {
+    let dateObject;
+    let otherMonth = false;
+
+    if (i < firstDay) {
+      dateObject = new Date(year, month - 1, prevDays - firstDay + i + 1);
+      otherMonth = true;
+    } else if (i >= firstDay + days) {
+      dateObject = new Date(year, month + 1, i - firstDay - days + 1);
+      otherMonth = true;
+    } else {
+      dateObject = new Date(year, month, i - firstDay + 1);
+    }
+
+    const date = fd(dateObject);
+    const items = byDate.get(date) || [];
+    const internalItems = internalSchedulesForDate(date).filter(item => {
+      if (!q) return true;
+      return [item.title, item.note, item.time, internalScheduleTypeLabel(item)]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    });
+
+    const calendarItems = [
+      ...internalItems.map(calendarInternalScheduleBadge),
+      ...items.map(calendarProjectBadge)
+    ];
+
+    cells.push(
+      `<div class="calendar-day ${otherMonth ? 'other-month' : ''} ${date === fd(new Date()) ? 'today' : ''}">
+        <div class="calendar-day-number">${dateObject.getDate()}</div>
+        <div class="calendar-day-projects">
+          ${calendarItems.slice(0, 5).join('')}
+          ${calendarItems.length > 5 ? `<span class="calendar-more">ほか${calendarItems.length - 5}件</span>` : ''}
+        </div>
+      </div>`
+    );
+  }
+
+  host.innerHTML =
+    '<div class="calendar-weekdays">' +
+    ['日', '月', '火', '水', '木', '金', '土'].map(day => `<div>${day}</div>`).join('') +
+    '</div><div class="calendar-grid">' +
+    cells.join('') +
+    '</div>';
 }
 
 function normalizeShipNo(value) {
-  return String(value || '').trim();
+  // 案件番号は形式を固定せず、入力された内容をそのまま保存する。
+  // 例: S.2830 / 2830 / A-001 / 任意の管理番号
+  return safeTrim(value || '');
 }
+
+function noop(){}
 
 function ordered(type) {
   return [...(S.masters[type] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -166,7 +1530,9 @@ function saveProjectLifecycle() {
 }
 
 function projectLifecycle(project) {
-  const saved = S.projectLifecycle[project.id];
+  const remote = project.portalState?.lifecycle || project.lifecycle;
+  const local = S.projectLifecycle[project.id];
+  const saved = local && typeof local === 'object' ? local : remote;
   const status = saved?.status === 'delivered'
     ? 'delivered'
     : saved?.status === 'production_complete'
@@ -192,9 +1558,211 @@ function lifecycleBadgeHtml(project, compact = false) {
   return `<span class="project-status status-${esc(lifecycle.status)} ${compact ? 'is-compact' : ''}">${esc(lifecycleLabel(lifecycle.status))}</span>`;
 }
 
-function setProjectLifecycle(projectId, status) {
+function sharedProjectBody(project) {
+  const employeeIds = projectEmployeeIds(project);
+  const assigneeProgress = projectAssigneeProgress(project);
+  const lifecycle = projectLifecycle(project);
+  return {
+    id: project.id,
+    shipNo: project.shipNo || '',
+    displayName: project.displayName || '',
+    productName: project.productName || '',
+    client: project.client || '',
+    employeeIds,
+    employeeId: employeeIds[0] || '',
+    dueDate: project.dueDate || '',
+    notes: project.notes || '',
+    quantity: project.quantity || 0,
+    spec: project.spec || '',
+    completed: Boolean(project.completed),
+    assigneeProgress,
+    lifecycle,
+    portalState: { assigneeProgress, lifecycle },
+    ...actorPayload()
+  };
+}
+
+
+
+function emergencyProjectSnapshot(projects = []) {
+  const snapshot = projects
+    .filter(project => !isSharedPortalProject(project))
+    .map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
+
+  localStorage.setItem('hikari_portal_emergency_project_snapshot', JSON.stringify({
+    createdAt: new Date().toISOString(),
+    projects: snapshot
+  }));
+
+  return snapshot;
+}
+
+async function restoreMissingProjects(missingProjects = []) {
+  for (const project of missingProjects) {
+    try {
+      await api(API.projects, {
+        method: 'POST',
+        body: {
+          ...sharedProjectBody(project),
+          id: '',
+          ...actorPayload()
+        }
+      });
+    } catch {
+      // 後続の再取得で復旧状況を確認する。
+    }
+  }
+}
+
+
+
+function sharedScheduleMemoSnapshot(sharedProject = null) {
+  const parsed = parseSharedPortalState(sharedProject) || {};
+  return {
+    internalSchedules: Array.isArray(parsed.internalSchedules)
+      ? parsed.internalSchedules.map(normalizeInternalSchedule)
+      : S.internalSchedules.map(normalizeInternalSchedule),
+    stickyNotes:
+      parsed.stickyNotes &&
+      typeof parsed.stickyNotes === 'object' &&
+      !Array.isArray(parsed.stickyNotes)
+        ? { ...parsed.stickyNotes }
+        : { ...S.stickyNotes }
+  };
+}
+
+function sharedScheduleMemoEqual(left = {}, right = {}) {
+  const a = {
+    internalSchedules: Array.isArray(left.internalSchedules)
+      ? left.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes: left.stickyNotes && typeof left.stickyNotes === 'object'
+      ? left.stickyNotes
+      : {}
+  };
+  const b = {
+    internalSchedules: Array.isArray(right.internalSchedules)
+      ? right.internalSchedules.map(normalizeInternalSchedule)
+      : [],
+    stickyNotes: right.stickyNotes && typeof right.stickyNotes === 'object'
+      ? right.stickyNotes
+      : {}
+  };
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+
+async function ensureSharedScheduleMemoPreserved(snapshot, currentProjects = []) {
+  return ensureScheduleMemoRecordPreserved(snapshot);
+}
+
+
+
+
+async function persistSharedProjectState(projectId) {
+  return queueSharedPortalWrite(async () => {
+    const latestData = await api(API.projects);
+    const allProjects = Array.isArray(latestData.projects)
+      ? latestData.projects
+      : [];
+    const latestProject = allProjects.find(
+      item => !isSharedPortalProject(item) && item.id === projectId
+    );
+
+    if (!latestProject) {
+      throw new Error('更新対象の案件がサーバー上に見つかりません。');
+    }
+
+    const localProject =
+      S.projects.find(item => item.id === projectId) ||
+      latestProject;
+    const progress = { ...projectAssigneeProgress(localProject) };
+    const lifecycle = { ...projectLifecycle(localProject) };
+
+    // projects.mjs Ver2で保存できる案件拡張項目として、
+    // 対象案件1件だけへ進捗とステータスを保存する。
+    const body = {
+      ...latestProject,
+      assigneeProgress: progress,
+      lifecycle,
+      portalState: {
+        ...(latestProject.portalState || {}),
+        assigneeProgress: progress,
+        lifecycle
+      },
+      ...actorPayload()
+    };
+
+    await api(API.projects, {
+      method: 'PUT',
+      body
+    });
+
+    const confirmedData = await api(API.projects);
+    const confirmedProject = (confirmedData.projects || []).find(
+      item => !isSharedPortalProject(item) && item.id === projectId
+    );
+
+    if (!confirmedProject) {
+      throw new Error('更新後の案件を確認できませんでした。');
+    }
+
+    const confirmedProgress =
+      confirmedProject.portalState?.assigneeProgress ||
+      confirmedProject.assigneeProgress ||
+      {};
+    const confirmedLifecycle =
+      confirmedProject.portalState?.lifecycle ||
+      confirmedProject.lifecycle ||
+      {};
+
+    if (
+      JSON.stringify(confirmedProgress) !== JSON.stringify(progress) ||
+      JSON.stringify(confirmedLifecycle) !== JSON.stringify(lifecycle)
+    ) {
+      throw new Error(
+        'ステータスの保存結果を確認できませんでした。projects.mjs Ver2のデプロイ状態を確認してください。'
+      );
+    }
+
+    S.assigneeProgress[projectId] = { ...confirmedProgress };
+    S.projectLifecycle[projectId] = { ...confirmedLifecycle };
+    saveAssigneeProgress();
+    saveProjectLifecycle();
+
+    const localIndex = S.projects.findIndex(item => item.id === projectId);
+    if (localIndex >= 0) {
+      S.projects[localIndex] = {
+        ...S.projects[localIndex],
+        assigneeProgress: { ...confirmedProgress },
+        lifecycle: { ...confirmedLifecycle },
+        portalState: {
+          ...(S.projects[localIndex].portalState || {}),
+          assigneeProgress: { ...confirmedProgress },
+          lifecycle: { ...confirmedLifecycle }
+        }
+      };
+    }
+
+    S.revision = String(
+      confirmedData.revision ??
+      confirmedData.updatedAt ??
+      latestData.revision ??
+      S.revision ??
+      ''
+    );
+
+    return true;
+  });
+}
+
+async function setProjectLifecycle(projectId, status) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project) return false;
+
+  const previousLifecycle = S.projectLifecycle[projectId]
+    ? { ...S.projectLifecycle[projectId] }
+    : null;
   const now = new Date().toISOString();
   const actor = employeeName(S.actorEmployeeId);
   const current = projectLifecycle(project);
@@ -235,11 +1803,22 @@ function setProjectLifecycle(projectId, status) {
   }
 
   saveProjectLifecycle();
+  try {
+    await persistSharedProjectState(projectId);
+  } catch (error) {
+    if (previousLifecycle) S.projectLifecycle[projectId] = previousLifecycle;
+    else delete S.projectLifecycle[projectId];
+    saveProjectLifecycle();
+    renderSchedule();
+    renderDeadlines();
+    toast(`共有保存に失敗しました：${error.message}`);
+    return false;
+  }
+
   renderSchedule();
   renderDeadlines();
   return true;
 }
-
 
 function loadTrash() {
   try {
@@ -349,9 +1928,16 @@ async function runWithConcurrency(items, limit, worker) {
 async function restoreTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
   if (!entry) return toast('ごみ箱の案件が見つかりません。');
+
+  // 復元後にサーバー側で確定したIDを取得するため、一覧を再取得する。
+  // 存在しない並び替え関数には依存せず、従来の安定した復元処理を使用する。
   const beforeIds = new Set(S.projects.map(project => project.id));
-  await api(API.projects, { method: 'POST', body: { ...entry.project, ...actorPayload() } });
+  await api(API.projects, {
+    method: 'POST',
+    body: { ...entry.project, ...actorPayload() }
+  });
   await load();
+
   const restored = findRestoredProject(entry, beforeIds);
   if (restored && entry.assigneeProgress) {
     S.assigneeProgress[restored.id] = Object.fromEntries(
@@ -363,21 +1949,24 @@ async function restoreTrashEntry(trashId) {
     S.projectLifecycle[restored.id] = { ...entry.lifecycle };
     saveProjectLifecycle();
   }
+
   removeTrashEntry(trashId);
   renderTrash();
   toast('案件を復元しました');
 }
 
+/* ===== ごみ箱関連 ===== */
+
 async function permanentlyDeleteTrashEntry(trashId) {
   const entry = S.trash.find(item => item.trashId === trashId);
   if (!entry) return;
   const label = `${entry.project.shipNo || ''} ${entry.project.displayName || ''}`.trim() || 'この案件';
-  const approved = await portalConfirm({
+  const approved = await confirmDangerAction({
     title: '案件を完全に削除しますか？',
     message: 'ごみ箱から完全に削除すると、元に戻せません。',
     detail: label,
     note: '必要な案件でないことを確認してから実行してください。',
-    confirmText: '完全に削除', tone: 'danger', icon: '！'
+    confirmText: '完全に削除'
   });
   if (!approved) return;
   removeTrashEntry(trashId);
@@ -387,11 +1976,11 @@ async function permanentlyDeleteTrashEntry(trashId) {
 
 async function emptyTrash() {
   if (!S.trash.length) return;
-  const approved = await portalConfirm({
+  const approved = await confirmDangerAction({
     title: 'ごみ箱を空にしますか？',
     message: `ごみ箱にある${S.trash.length}件をすべて完全に削除します。`,
     note: 'この操作は元に戻せません。',
-    confirmText: 'すべて完全に削除', tone: 'danger', icon: '！'
+    confirmText: 'すべて完全に削除'
   });
   if (!approved) return;
   S.trash = [];
@@ -401,7 +1990,9 @@ async function emptyTrash() {
 }
 
 function projectAssigneeProgress(project) {
-  const saved = S.assigneeProgress[project.id];
+  const remote = project.portalState?.assigneeProgress || project.assigneeProgress;
+  const local = S.assigneeProgress[project.id];
+  const saved = local && typeof local === 'object' ? local : remote;
   const current = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
   return Object.fromEntries(projectEmployeeIds(project).map(id => [id, current[id] === true]));
 }
@@ -413,9 +2004,17 @@ function assigneeProgressSummary(project) {
   return { progress, total, completed };
 }
 
-function setAssigneeComplete(projectId, employeeId, completed) {
+
+async function setAssigneeComplete(projectId, employeeId, completed) {
   const project = S.projects.find(item => item.id === projectId);
   if (!project || !projectEmployeeIds(project).includes(employeeId)) return false;
+
+  const previousProgress = S.assigneeProgress[projectId]
+    ? { ...S.assigneeProgress[projectId] }
+    : null;
+  const previousLifecycle = S.projectLifecycle[projectId]
+    ? { ...S.projectLifecycle[projectId] }
+    : null;
 
   const progress = projectAssigneeProgress(project);
   progress[employeeId] = Boolean(completed);
@@ -425,14 +2024,25 @@ function setAssigneeComplete(projectId, employeeId, completed) {
   const summary = assigneeProgressSummary(project);
   const lifecycle = projectLifecycle(project);
 
-  // 担当者全員が完了したら、案件も自動で「製作完了」にする。
-  if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
-    setProjectLifecycle(projectId, 'production_complete');
-  }
-
-  // 誰か一人でも未完了へ戻したら、納品前の案件は「製作中」に戻す。
-  if (!completed && lifecycle.status !== 'in_progress') {
-    setProjectLifecycle(projectId, 'in_progress');
+  try {
+    if (summary.total > 0 && summary.completed === summary.total && lifecycle.status === 'in_progress') {
+      const saved = await setProjectLifecycle(projectId, 'production_complete');
+      if (!saved) throw new Error('製作完了の共有保存に失敗しました。');
+    } else if (!completed && lifecycle.status !== 'in_progress') {
+      const saved = await setProjectLifecycle(projectId, 'in_progress');
+      if (!saved) throw new Error('製作中への変更を共有保存できませんでした。');
+    } else {
+      await persistSharedProjectState(projectId);
+    }
+  } catch (error) {
+    if (previousProgress) S.assigneeProgress[projectId] = previousProgress;
+    else delete S.assigneeProgress[projectId];
+    if (previousLifecycle) S.projectLifecycle[projectId] = previousLifecycle;
+    else delete S.projectLifecycle[projectId];
+    saveAssigneeProgress();
+    saveProjectLifecycle();
+    toast(`担当者進捗の共有保存に失敗しました：${error.message}`);
+    return false;
   }
 
   return true;
@@ -454,7 +2064,7 @@ function assigneeProgressHtml(project, effect = '') {
         <small>${progress[id] ? '完了' : '未完了'}</small>
       </label>`).join('')}
     </div>
-    <p class="assignee-progress-note">チェック状態は、この端末のブラウザに保存されます。</p>
+    <p class="assignee-progress-note">チェック状態は共有保存され、ほかのPCにも更新時に反映されます。</p>
   </section>`;
 }
 
@@ -491,7 +2101,7 @@ function lifecycleDetailHtml(project, effect = '') {
     <div class="project-lifecycle-meta">${productionMeta}${deliveryMeta}</div>
     ${lifecycle.status === 'in_progress' ? '<p class="project-lifecycle-note">最後の担当者が完了すると、自動で「製作完了」に切り替わります。</p>' : ''}
     ${actions ? `<div class="project-lifecycle-actions">${actions}</div>` : ''}
-    <p class="project-lifecycle-storage-note">ステータスは、この端末のブラウザに保存されます。</p>
+    <p class="project-lifecycle-storage-note">ステータスは共有保存され、ほかのPCにも反映されます。</p>
   </section>`;
 }
 
@@ -627,9 +2237,7 @@ function checkedValues(containerId) {
 
 function fillSelects() {
   if ($('displayNameList')) $('displayNameList').innerHTML = fillDatalist('displayNames');
-  if ($('productNameList')) $('productNameList').innerHTML = fillDatalist('products');
   if ($('clientList')) $('clientList').innerHTML = fillDatalist('clients');
-  if ($('employeeId')) $('employeeId').innerHTML = optionHtml('employees');
   if ($('importEmployee')) $('importEmployee').innerHTML = optionHtml('employees', '担当者を選択');
   renderEmployeeCheckboxes('employeeChoices');
   renderEmployeeCheckboxes('importEmployeeChoices');
@@ -642,7 +2250,6 @@ function fillSelects() {
     $('historyActorFilter').innerHTML = '<option value="">すべて</option>' + ordered('employees').map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
     $('historyActorFilter').value = current;
   }
-  if ($('legacyEmployeeLabel')) $('legacyEmployeeLabel').hidden = true;
   if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
   if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
   if ($('importEmployeeChoicesField')) $('importEmployeeChoicesField').hidden = true;
@@ -651,7 +2258,7 @@ function fillSelects() {
 function filtered() {
   const q = S.q.trim().toLowerCase();
   return S.projects.filter(project => !q || [
-    project.shipNo, project.displayName, project.productName, project.client,
+    project.shipNo, project.displayName, project.client,
     project.spec, project.notes, employeeNames(project)
   ].join(' ').toLowerCase().includes(q));
 }
@@ -672,7 +2279,7 @@ function groupProjects(projects = filtered()) {
     map.get(key).projects.push(project);
   });
   return [...map.values()].map(group => {
-    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)) || String(a.productName).localeCompare(String(b.productName), 'ja'));
+    group.projects.sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
     group.representative = group.projects[0];
     group.employeeIds = [...new Set(group.projects.flatMap(projectEmployeeIds))];
     group.dueDates = [...new Set(group.projects.map(project => project.dueDate).filter(Boolean))].sort();
@@ -723,13 +2330,13 @@ function renderSchedule() {
   if ($('emptyEmployees')) $('emptyEmployees').textContent = employees.length ? '' : '社員マスタを登録すると、職員別スケジュールが表示されます。';
   const days = new Date(year, month + 1, 0).getDate();
   const groups = groupProjects(filtered());
-  let html = '<thead><tr><th class="date-col">日付</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
+  let html = '<thead><tr><th class="date-col">日付</th><th class="date-memo-col" aria-label="日付メモ"></th><th class="internal-col">社内スケジュール</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
     const date = fd(new Date(year, month, day));
-    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th>` + employees.map(item => {
+    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td><td class="internal-schedule-cell">${internalScheduleHtml(date)}</td>` + employees.map(item => {
       const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
-    }).join('') + '</tr>';
+    }).join('') + `</tr>`;
   }
   html += '</tbody>';
   if ($('scheduleTable')) $('scheduleTable').innerHTML = html;
@@ -748,28 +2355,75 @@ function scrollScheduleToToday({ behavior = 'auto' } = {}) {
   wrap.scrollTo({ top: target, behavior });
 }
 
+
 function renderDeadlines() {
   const statusOrder = { in_progress: 0, production_complete: 1, delivered: 2 };
-  const groups = groupProjects(filtered()).sort((a, b) => statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] || String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || '')));
-  const selectedGroups = groups.filter(group => group.projects.every(project => S.selectedProjectIds.has(project.id)));
+
+  fillEmployeeFilter('deadlineEmployeeFilter', S.deadlineEmployeeId);
+  if ($('deadlineStatusFilter')) $('deadlineStatusFilter').value = S.deadlineStatusFilter;
+
+  const groups = groupProjects(filtered())
+    .filter(group =>
+      (!S.deadlineEmployeeId || group.employeeIds.includes(S.deadlineEmployeeId)) &&
+      groupMatchesStatusFilter(group, S.deadlineStatusFilter)
+    )
+    .sort((a, b) =>
+      statusOrder[groupLifecycleStatus(a)] - statusOrder[groupLifecycleStatus(b)] ||
+      String(a.dueDates[0] || '').localeCompare(String(b.dueDates[0] || ''))
+    );
+
+  if ($('deadlineResultCount')) $('deadlineResultCount').textContent = `${groups.length}案件`;
+
+  const selectedGroups = groups.filter(group =>
+    group.projects.every(project => S.selectedProjectIds.has(project.id))
+  );
   const count = selectedGroups.length;
-  const toolbar = `<div class="deadline-selection-toolbar"><button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button><button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button><strong id="selectedProjectCount">${count}案件選択中</strong><button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>選択した${count}案件をごみ箱へ</button></div>`;
-  const items = groups.length ? groups.map(group => {
-    const project = group.representative;
-    const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
-    const products = group.projects.slice(0, 3).map(item => item.productName || '製品名未設定').join('・');
-    const more = group.projects.length > 3 ? ` ほか${group.projects.length - 3}件` : '';
-    return `<article class="deadline grouped-deadline lifecycle-${esc(groupLifecycleStatus(group))}">
-      <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
-      <button type="button" data-group-detail="${esc(project.id)}" class="check group-count-check" aria-label="案件詳細を開く">${group.projects.length}</button>
-      <div><div class="deadline-heading"><time>${esc(groupDueLabel(group))}</time>${groupLifecycleBadgeHtml(group, true)}</div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '—')}</h3><p><strong>${group.projects.length}明細</strong> ／ ${esc(products)}${esc(more)} ／ ${esc(groupEmployeeNames(group))}${project.client ? ` ／ ${esc(project.client)}` : ''}</p></div>
-      <button type="button" data-group-detail="${esc(project.id)}">詳細</button>
-      <button type="button" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
-    </article>`;
-  }).join('') : '<div class="notice">案件はありません。</div>';
+
+  const toolbar = `<div class="deadline-selection-toolbar">
+    <button type="button" id="selectVisible" class="secondary">表示中をすべて選択</button>
+    <button type="button" id="clearProjectSelection" class="secondary">選択をすべて解除</button>
+    <strong id="selectedProjectCount">${count}案件選択中</strong>
+    <button type="button" id="bulkDeleteProjects" class="danger" ${count ? '' : 'disabled'}>
+      選択した${count}案件をごみ箱へ
+    </button>
+  </div>`;
+
+  const items = groups.length
+    ? groups.map(group => {
+        const project = group.representative;
+        const checked = group.projects.every(item => S.selectedProjectIds.has(item.id));
+        const more = group.projects.length > 2 ? `ほか${group.projects.length - 2}件` : '';
+        const summary = group.projects.reduce(
+          (acc, item) => {
+            const progress = assigneeProgressSummary(item);
+            acc.completed += progress.completed;
+            acc.total += progress.total;
+            return acc;
+          },
+          { completed: 0, total: 0 }
+        );
+        const overdue = groupIsOverdue(group);
+
+        return `<article class="deadline grouped-deadline deadline-one-line lifecycle-${esc(groupLifecycleStatus(group))} ${overdue ? 'is-overdue' : ''}">
+          <input type="checkbox" class="project-select" data-select-group="${esc(project.id)}" ${checked ? 'checked' : ''} aria-label="${esc(project.shipNo)}を選択">
+          <time>${esc(groupDueLabel(group))}</time>
+          ${overdue ? '<span class="overdue-badge">納期超過</span>' : groupLifecycleBadgeHtml(group, true)}
+          <button type="button" data-group-detail="${esc(project.id)}" class="deadline-main-link">
+            <strong>${esc(project.shipNo || '—')}</strong>
+            <span>${esc(project.displayName || '—')}</span>
+          </button>
+          <span class="deadline-inline-meta">
+            ${group.projects.length}明細${more ? ` ／ ${esc(more)}` : ''} ／ ${esc(groupEmployeeNames(group))}
+            ${summary.total ? ` ／ 担当完了 ${summary.completed}/${summary.total}` : ''}
+          </span>
+          <button type="button" class="secondary" data-group-detail="${esc(project.id)}">詳細</button>
+          <button type="button" class="danger ghost-danger" data-group-delete="${esc(project.id)}">ごみ箱へ</button>
+        </article>`;
+      }).join('')
+    : '<div class="notice">条件に一致する案件はありません。</div>';
+
   if ($('deadlineList')) $('deadlineList').innerHTML = toolbar + items;
 }
-
 
 function renderTrash() {
   const host = $('trashList');
@@ -788,7 +2442,7 @@ function renderTrash() {
     const names = projectEmployeeIds(project).map(employeeName).join('・') || '未設定';
     return `<article class="trash-item">
       <div class="trash-item-main">
-        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong><span>${esc(project.productName || '—')}</span></div>
+        <div class="trash-item-title"><strong>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</strong></div>
         <dl>
           <div><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd></div>
           <div><dt>担当者</dt><dd>${esc(names)}</dd></div>
@@ -805,8 +2459,8 @@ function renderTrash() {
   }).join('');
 }
 
-const masterLabels = { clients: '得意先', displayNames: '部門', products: '製作加工', employees: '職員' };
-const masterOrder = ['clients', 'displayNames', 'products', 'employees'];
+const masterLabels = { clients: '得意先', displayNames: '部門', employees: '職員' };
+const masterOrder = ['clients', 'displayNames', 'employees'];
 function masterCardHtml(type) {
   const content = `<form data-master="${type}"><input placeholder="${masterLabels[type]}名"><button class="primary">追加</button></form><div>${ordered(type).map((item, index, array) => `<div class="master-item ${item.active === false ? 'inactive' : ''}"><span>${esc(item.name)}</span><div class="master-actions"><button type="button" data-move="up" data-id="${esc(item.id)}" data-type="${type}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" data-move="down" data-id="${esc(item.id)}" data-type="${type}" ${index === array.length - 1 ? 'disabled' : ''}>↓</button><button type="button" data-medit="${esc(item.id)}" data-type="${type}">変更</button><button type="button" data-mtoggle="${esc(item.id)}" data-type="${type}">${item.active === false ? '表示' : '非表示'}</button><button type="button" data-mdelete="${esc(item.id)}" data-type="${type}">削除</button></div></div>`).join('') || '<p class="muted">登録なし</p>'}</div>`;
   if (type === 'employees') return `<details class="master-card master-card-collapsible"><summary><span>職員マスタ</span><small>ほぼ固定のため通常は非表示</small></summary><div class="master-card-body">${content}</div></details>`;
@@ -822,22 +2476,132 @@ function render() {
   renderDeadlines();
   renderMasters();
   renderTrash();
+  renderCalendar();
+  renderInternalScheduleList();
+  renderHomeAssist();
+  renderDutyMasters();
   fillSelects();
 }
 
 async function load({ silent = false } = {}) {
   try {
     const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
-    S.projects = (projectData.projects || []).map(project => ({ ...project, employeeIds: projectEmployeeIds(project) }));
+
+    // 共有レコード作成時に社員マスタを参照できるよう、最初にマスタを確定する。
     S.masters = masterData.masters || S.masters;
+
+    const allProjects = projectData.projects || [];
+    const sharedPortalProject = allProjects.find(isScheduleMemoSharedProject) || null;
+    const statusSharedProject = allProjects.find(isStatusSharedProject) || null;
+    const materialSharedProject = allProjects.find(isMaterialSharedProject) || null;
+
+    S.sharedPortalProjectId = sharedPortalProject?.id || '';
+    S.statusSharedProjectId = statusSharedProject?.id || '';
+    S.materialSharedProjectId = materialSharedProject?.id || '';
+
+    S.projects = allProjects
+      .filter(project => !isSharedPortalProject(project))
+      .map(project => ({
+        ...project,
+        displayName: stripApiEmptyText(project.displayName),
+        productName: stripApiEmptyText(project.productName),
+        employeeIds: projectEmployeeIds(project)
+      }));
+
+    // 社内予定とメモは専用共有レコードから読み込む。
+    if (sharedPortalProject) {
+      applySharedPortalState(sharedPortalProject);
+    }
+
+    // 材料マスタと価格履歴は専用共有レコードから読み込む。
+    // 共有レコードがまだない場合だけ、このPCの旧ローカル材料を維持する。
+    if (materialSharedProject) {
+      applyMaterialSharedState(materialSharedProject);
+    }
+
+    // RC5では進捗・ステータスを各案件本体から読み込む。
+    // RC4以前のSYS.PORTAL.STATUSは移行用の予備データとしてのみ参照する。
+    const legacyStatusState = statusSharedProject
+      ? normalizeStatusSharedState(
+          parseStatusSharedState(statusSharedProject) || {}
+        )
+      : { assigneeProgress: {}, projectLifecycle: {} };
+
+    const nextProgress = {};
+    const nextLifecycle = {};
+
+    S.projects.forEach(project => {
+      const projectProgress =
+        project.portalState?.assigneeProgress ||
+        project.assigneeProgress;
+      const projectLifecycleValue =
+        project.portalState?.lifecycle ||
+        project.lifecycle;
+
+      const fallbackProgress =
+        legacyStatusState.assigneeProgress?.[project.id];
+      const fallbackLifecycle =
+        legacyStatusState.projectLifecycle?.[project.id];
+
+      if (
+        projectProgress &&
+        typeof projectProgress === 'object' &&
+        !Array.isArray(projectProgress)
+      ) {
+        nextProgress[project.id] = { ...projectProgress };
+      } else if (fallbackProgress) {
+        nextProgress[project.id] = { ...fallbackProgress };
+      }
+
+      if (
+        projectLifecycleValue &&
+        typeof projectLifecycleValue === 'object' &&
+        !Array.isArray(projectLifecycleValue)
+      ) {
+        nextLifecycle[project.id] = { ...projectLifecycleValue };
+      } else if (fallbackLifecycle) {
+        nextLifecycle[project.id] = { ...fallbackLifecycle };
+      }
+    });
+
+    // 同期時に取得したサーバー値で、このPCのローカル状態を置き換える。
+    // 操作中は従来どおりローカル優先のため、担当者チェックの即時反映を壊さない。
+    S.assigneeProgress = nextProgress;
+    S.projectLifecycle = nextLifecycle;
+
+    // 詳細画面・一覧・月間表示が同じ同期値を参照できるよう、
+    // 案件オブジェクトにも読み込んだ進捗とステータスを反映する。
+    S.projects = S.projects.map(project => {
+      const progress = nextProgress[project.id];
+      const lifecycle = nextLifecycle[project.id];
+
+      return {
+        ...project,
+        ...(progress ? { assigneeProgress: { ...progress } } : {}),
+        ...(lifecycle ? { lifecycle: { ...lifecycle } } : {}),
+        portalState: {
+          ...(project.portalState || {}),
+          ...(progress ? { assigneeProgress: { ...progress } } : {}),
+          ...(lifecycle ? { lifecycle: { ...lifecycle } } : {})
+        }
+      };
+    });
+
+    saveAssigneeProgress();
+    saveProjectLifecycle();
     S.revision = String(projectData.revision ?? projectData.updatedAt ?? S.revision ?? '');
     render();
     requestAnimationFrame(() => scrollScheduleToToday());
     updateActorStatus();
     requestActorIfNeeded();
     const lastUpdated = $('lastUpdated');
-    if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())}`;
+    const now = new Date();
+    S.lastAutoSyncAt = now.toISOString();
+    if (lastUpdated) lastUpdated.textContent = `最終更新：${new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(now)}`;
+    renderSyncDetail();
   } catch (error) {
+    // 共有データに問題があっても、取得済みのローカルデータで画面を描画する。
+    try { render(); } catch {}
     if (!silent) toast(error.message);
   }
 }
@@ -850,7 +2614,7 @@ function openGroupDetail(id) {
     <article class="group-detail-line lifecycle-${esc(projectLifecycle(item).status)}">
       <div class="group-detail-line-number">${index + 1}</div>
       <div class="group-detail-line-main">
-        <div class="group-detail-line-heading"><h3>${esc(item.productName || '製品名未設定')}</h3>${lifecycleBadgeHtml(item, true)}</div>
+        <div class="group-detail-line-heading"><h3>明細 ${index + 1}</h3>${lifecycleBadgeHtml(item, true)}</div>
         <dl>
           <div><dt>数量</dt><dd>${item.quantity ? esc(item.quantity) : '—'}</dd></div>
           <div><dt>納期</dt><dd>${esc(jp(item.dueDate))}</dd></div>
@@ -860,7 +2624,7 @@ function openGroupDetail(id) {
       </div>
       <div class="group-detail-line-actions">
         <button type="button" class="secondary" data-detail="${esc(item.id)}">明細詳細</button>
-        <button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
+        <button type="button" class="secondary" data-copy-project="${esc(item.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(item.id)}">編集</button>
         <button type="button" class="danger ghost-danger" data-request-delete="${esc(item.id)}">ごみ箱へ</button>
       </div>
     </article>`).join('');
@@ -879,7 +2643,7 @@ function openDetail(id, effect = '') {
   if (!project) return toast('案件が見つかりません。');
   const group = projectGroup(project);
   const backButton = group && group.projects.length > 1 ? `<button type="button" class="detail-back-button" data-group-detail="${esc(project.id)}">← 案件明細一覧へ</button>` : '';
-  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(project.productName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
+  $('detailBody').innerHTML = `<header><div>${backButton}<h2>明細詳細</h2></div><button type="button" data-close>×</button></header><dl><dt>番船</dt><dd>${esc(project.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(project.displayName || '—')}</dd><dt>数量</dt><dd>${project.quantity ? esc(project.quantity) : '—'}</dd><dt>仕様</dt><dd>${esc(project.spec || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(project))}</dd><dt>得意先</dt><dd>${esc(project.client || '—')}</dd><dt>納期</dt><dd>${esc(jp(project.dueDate))}</dd><dt>メモ</dt><dd>${esc(project.notes || '—')}</dd></dl>${assigneeProgressHtml(project, effect === 'progress-updated' ? effect : '')}${lifecycleDetailHtml(project, effect)}<footer class="detail-actions"><button type="button" class="secondary" data-close>閉じる</button><div><button type="button" class="secondary" data-copy-project="${esc(project.id)}">コピー</button><button type="button" class="secondary" data-detail-edit="${esc(project.id)}">編集</button><button type="button" class="danger" data-request-delete="${esc(project.id)}">ごみ箱へ</button></div></footer>`;
   $('detailDialog').showModal();
 }
 
@@ -888,9 +2652,8 @@ function openProject(id = '') {
   $('projectId').value = project?.id || '';
   $('shipNo').value = project?.shipNo || '';
   $('displayName').value = project?.displayName || '';
-  $('productName').value = project?.productName || '';
   $('client').value = project?.client || '';
-  $('dueDate').value = project?.dueDate || fd(new Date());
+  $('dueDate').value = project?.dueDate || '';
   $('notes').value = project?.notes || '';
   $('projectHeading').textContent = project ? '案件を編集' : '案件を追加';
   $('projectError').textContent = '';
@@ -904,7 +2667,7 @@ function requestDelete(id) {
   const project = S.projects.find(item => item.id === id);
   if (!project) return toast('案件が見つかりません。');
   S.pendingDeleteId = id;
-  $('deleteTarget').textContent = `${project.shipNo || ''} ${project.displayName || ''} ${project.productName || ''}`.trim();
+  $('deleteTarget').textContent = `${project.shipNo || ''} ${project.displayName || ''}`.trim();
   if ($('detailDialog').open) $('detailDialog').close();
   $('deleteDialog').showModal();
 }
@@ -970,7 +2733,6 @@ function isImportableItem(item) {
   return true;
 }
 
-
 function employeeMultiDropdownHtml(containerId, selectedIds = [], autoEtching = false) {
   const selected = new Set(selectedIds);
   const employees = ordered('employees').filter(item => item.active !== false);
@@ -1018,7 +2780,7 @@ function renderImportRows() {
     const autoEtching = isEtching(item) && Boolean(masahiroId);
     const selectedIds = autoEtching ? [masahiroId] : [];
     if (selectedIds.length) hasAutoAssign = true;
-    return `<tr data-import-row="${index}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-product" list="productNameList" value="${esc(item.productName || '')}"></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
+    return `<tr data-import-row="${index}" data-import-product="${esc(item.productName || '')}"><td><input type="checkbox" class="import-select" ${item.selected !== false ? 'checked' : ''}></td><td><input class="import-quantity" type="number" min="0" step="1" value="${esc(item.quantity || '')}"></td><td><textarea class="import-spec" rows="2">${esc([item.spec, item.remarks].filter(Boolean).join(' ／ '))}</textarea></td><td>${rowEmployeeSelect(index, selectedIds, autoEtching)}</td><td><input class="import-date" type="date" value="${esc($('importDueDate').value)}"></td></tr>`;
   }).join('');
   if ($('etchingAutoAssignNotice')) $('etchingAutoAssignNotice').hidden = !hasAutoAssign;
   updateImportCount();
@@ -1054,7 +2816,8 @@ function renderHistory() {
   const list = S.history.filter(item => {
     const action = historyAction(item);
     const project = historyProject(item);
-    const text = [project.shipNo, project.displayName, project.productName, item.summary, historyActorName(item)].join(' ').toLowerCase();
+    if (isSharedPortalProject(project)) return false;
+    const text = [project.shipNo, project.displayName, item.summary, historyActorName(item)].join(' ').toLowerCase();
     return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
   });
   if ($('historyEmpty')) $('historyEmpty').hidden = list.length !== 0;
@@ -1062,7 +2825,7 @@ function renderHistory() {
     const project = historyProject(item);
     const actorId = historyActorId(item);
     const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(project.productName || item.summary || '')}</p></button></article>`;
+    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(item.summary || project.notes || '')}</p></button></article>`;
   }).join('');
 }
 
@@ -1087,27 +2850,250 @@ function openHistoryDetail(index) {
   if (!item) return;
   const before = item.before || null;
   const after = item.after || item.project || null;
-  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>製品名</dt><dd>${esc(data.productName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
+  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
   $('historyDetailBody').innerHTML = `<header><h2>更新履歴の詳細</h2><button type="button" data-close>×</button></header><p><strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>　${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</p><p>操作者：${esc(historyActorName(item))}</p><div class="history-compare"><section><h3>変更前</h3>${table(before)}</section><section><h3>変更後</h3>${table(after)}</section></div><footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
   $('historyDetailDialog').showModal();
 }
 
+
+
+function formatSyncDateTime(value) {
+  if (!value) return '—';
+  try {
+    return new Intl.DateTimeFormat('ja-JP', {
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }).format(new Date(value));
+  } catch {
+    return '—';
+  }
+}
+
+function syncStateDetails() {
+  const status = $('syncStatus');
+  if (status?.classList.contains('is-error') || !navigator.onLine) {
+    return { state: 'error', label: '通信エラー', message: 'ネットワーク接続またはサーバーへの接続を確認してください。' };
+  }
+  if (status?.classList.contains('is-saving')) {
+    return { state: 'saving', label: '保存中…', message: '変更内容を共有データへ保存しています。' };
+  }
+  if (status?.classList.contains('is-syncing')) {
+    return { state: 'syncing', label: '同期中…', message: 'ほかのPCの最新データを取得しています。' };
+  }
+  if (status?.classList.contains('is-waiting')) {
+    return { state: 'waiting', label: '更新待ち', message: '入力中のため、自動同期を一時停止しています。' };
+  }
+  return { state: 'ready', label: '同期済み', message: 'すべてのPCで共有できる状態です。' };
+}
+
+function renderSyncDetail() {
+  const detail = syncStateDetails();
+  const dot = $('syncDetailDot');
+  if (dot) dot.className = `sync-detail-dot is-${detail.state}`;
+  if ($('syncDetailState')) $('syncDetailState').textContent = detail.label;
+  if ($('syncDetailMessage')) $('syncDetailMessage').textContent = detail.message;
+  if ($('syncDetailOnline')) $('syncDetailOnline').textContent = navigator.onLine ? 'オンライン' : 'オフライン';
+  if ($('syncDetailLastSync')) $('syncDetailLastSync').textContent = formatSyncDateTime(S.lastAutoSyncAt);
+  if ($('syncDetailSchedules')) $('syncDetailSchedules').textContent = `${S.internalSchedules.length}件`;
+  if ($('syncDetailNotes')) $('syncDetailNotes').textContent = `${Object.keys(S.stickyNotes).length}件`;
+  if ($('syncDetailProgress')) $('syncDetailProgress').textContent = `${Object.keys(S.assigneeProgress).length}案件`;
+  if ($('syncDetailLifecycle')) $('syncDetailLifecycle').textContent = `${Object.keys(S.projectLifecycle).length}案件`;
+}
+
+function openSyncDetail() {
+  renderSyncDetail();
+  const dialog = $('syncDetailDialog');
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function updateNetworkStatus() {
+  if (navigator.onLine) {
+    if ($('syncStatus')?.classList.contains('is-error')) updateSyncStatus('更新', 'ready');
+  } else {
+    updateSyncStatus('通信エラー', 'error');
+  }
+  renderSyncDetail();
+}
+
+function hasOpenEditingDialog() {
+  return Boolean(document.querySelector('dialog[open]'));
+}
+
+function isEditingFieldActive() {
+  const active = document.activeElement;
+  if (!active) return false;
+  return active.matches('input, textarea, select, [contenteditable="true"]');
+}
+
+function canAutoSyncNow() {
+  return !document.hidden &&
+    !S.autoSyncing &&
+    S.sharedWritePending === 0 &&
+    !hasOpenEditingDialog() &&
+    !isEditingFieldActive();
+}
+
+
+function showRemoteUpdateNotice() {
+  S.pendingRemoteUpdate = true;
+  const notice = $('updateNotice');
+  if (notice) notice.hidden = false;
+  updateSyncStatus('更新待ち', 'waiting');
+}
+
+
+function hideRemoteUpdateNotice() {
+  S.pendingRemoteUpdate = false;
+  const notice = $('updateNotice');
+  if (notice) notice.hidden = true;
+  updateSyncStatus('更新', 'ready');
+}
+
+
+
+function updateSyncStatus(message, state = 'ready') {
+  const label = $('refreshLabel');
+  if (label) label.textContent = message;
+
+  const status = $('syncStatus');
+  const statusText = $('syncStatusText');
+  if (!status || !statusText) return;
+
+  status.className = `sync-status is-${state}`;
+
+  const mascotScene = $('portalMascotScene');
+  if (mascotScene) {
+    mascotScene.className = `portal-mascot-scene is-${state}`;
+    const reaction = mascotScene.querySelector('.rudy-reaction');
+    if (reaction) {
+      reaction.textContent = ({
+        ready: '♪',
+        saving: '…',
+        syncing: '!',
+        waiting: '☕',
+        error: '?'
+      })[state] || '♪';
+    }
+
+    const mascotVector = mascotScene.querySelector('.rudykun-vector');
+    if (mascotVector) {
+      mascotVector.classList.remove(
+        'is-riding',
+        'is-syncing',
+        'is-paused',
+        'is-error'
+      );
+
+      if (state === 'syncing') {
+        mascotVector.classList.add('is-riding', 'is-syncing');
+      } else if (state === 'saving' || state === 'waiting') {
+        mascotVector.classList.add('is-paused');
+      } else if (state === 'error') {
+        mascotVector.classList.add('is-error', 'is-paused');
+      } else {
+        mascotVector.classList.add('is-riding');
+      }
+    }
+  }
+  const labels = {
+    ready: '同期済み',
+    saving: '保存中…',
+    syncing: '他PCを同期中…',
+    waiting: '更新待ち',
+    error: '通信エラー'
+  };
+  statusText.textContent = labels[state] || message || '同期済み';
+  renderSyncDetail();
+}
+
+
+async function autoSyncRemoteChanges() {
+  if (!canAutoSyncNow()) {
+    showRemoteUpdateNotice();
+    return false;
+  }
+
+  S.autoSyncing = true;
+  updateSyncStatus('同期中…', 'syncing');
+  try {
+    await load({ silent: true });
+    hideRemoteUpdateNotice();
+    S.lastAutoSyncAt = new Date().toISOString();
+    updateSyncStatus('自動同期済み', 'ready');
+    setTimeout(() => {
+      if (!S.autoSyncing) updateSyncStatus('更新', 'ready');
+    }, 1400);
+    return true;
+  } catch {
+    showRemoteUpdateNotice();
+    updateSyncStatus('通信エラー', 'error');
+    return false;
+  } finally {
+    S.autoSyncing = false;
+  }
+}
+
+
+
 async function pollRevision() {
-  if (document.hidden || S.pendingRemoteUpdate) return;
+  if (document.hidden || S.autoSyncing) return;
+  if (!navigator.onLine) {
+    updateSyncStatus('通信エラー', 'error');
+    return;
+  }
+
   try {
     const data = await api(`${API.projects}?mode=status`);
     const revision = String(data.revision ?? data.updatedAt ?? data.status?.revision ?? '');
-    if (!S.revision) { S.revision = revision; return; }
-    if (revision && revision !== S.revision) {
-      S.pendingRemoteUpdate = true;
-      if ($('updateNotice')) $('updateNotice').hidden = false;
+
+    if (!S.revision) {
+      S.revision = revision;
+      updateSyncStatus('更新', 'ready');
+      return;
     }
-  } catch {}
+
+    if (!revision || revision === S.revision) {
+      if (!$('syncStatus')?.classList.contains('is-saving')) {
+        updateSyncStatus('更新', 'ready');
+      }
+      return;
+    }
+
+    if (canAutoSyncNow()) {
+      await autoSyncRemoteChanges();
+    } else {
+      showRemoteUpdateNotice();
+    }
+  } catch {
+    updateSyncStatus('通信エラー', 'error');
+  }
 }
+
 
 function startPolling() {
   clearInterval(S.pollTimer);
   S.pollTimer = setInterval(pollRevision, POLL_INTERVAL);
+
+  if (!startPolling.visibilityBound) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollRevision();
+    });
+    window.addEventListener('focus', () => pollRevision());
+    window.addEventListener('pagehide', () => {
+      clearInterval(S.pollTimer);
+      S.pollTimer = null;
+    });
+    window.addEventListener('pageshow', () => {
+      if (!S.pollTimer) {
+        S.pollTimer = setInterval(pollRevision, POLL_INTERVAL);
+        pollRevision();
+      }
+    });
+    startPolling.visibilityBound = true;
+  }
 }
 
 async function bulkDeleteSelectedProjects() {
@@ -1121,7 +3107,7 @@ async function confirmBulkDelete() {
   const ids = [...S.selectedProjectIds];
   if (!ids.length) return;
 
-  // 削除前の完全なスナップショットを保持する。
+  // 削除前の案件データを保持し、API成功後にそのままごみ箱へ登録する。
   const targetMap = new Map(S.projects.map(project => [project.id, project]));
   const targets = ids.map(id => targetMap.get(id)).filter(Boolean);
   if (!targets.length) return toast('削除対象が見つかりません。');
@@ -1134,87 +3120,50 @@ async function confirmBulkDelete() {
   }
 
   try {
-    // Phase2.1: APIが元々備えている一括削除を1回だけ呼ぶ。
-    // 複数DELETEの並列実行は、サーバー側の同時書き込み競合で削除が巻き戻るため使用しない。
-    await api(API.projects, {
-      method: 'DELETE',
-      body: { ids: targets.map(project => project.id), ...actorPayload() }
+    // Phase2.2 高速化:
+    // projects.mjsが受け付ける ?ids=ID1,ID2... を使い、DELETE通信を1回に集約する。
+    // 削除後の全件再取得（load）は行わず、APIが返すdeletedIdsで画面状態を更新する。
+    const params = new URLSearchParams({
+      ids: targets.map(project => project.id).join(','),
+      actorName: employeeName(S.actorEmployeeId)
     });
 
-    // サーバーの確定状態を1回だけ読み直し、実際に消えた案件だけをごみ箱へ登録する。
-    await load({ silent: true });
-    let remainingIds = new Set(S.projects.map(project => project.id));
-    let failed = targets.filter(project => remainingIds.has(project.id));
+    const result = await api(`${API.projects}?${params.toString()}`, {
+      method: 'DELETE'
+    });
 
-    // 一括APIが一部だけ処理した場合に限り、残りを直列で補完する。
-    // 並列にはしないため、データ競合は起こさない。
-    if (failed.length) {
-      if (confirmButton) confirmButton.textContent = `残り${failed.length}件を確認中…`;
-      for (const project of failed) {
-        try {
-          await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
-            method: 'DELETE',
-            body: actorPayload()
-          });
-        } catch {
-          // 最後の再取得で実際の状態を判定する。
-        }
-      }
-      await load({ silent: true });
-      remainingIds = new Set(S.projects.map(project => project.id));
-      failed = targets.filter(project => remainingIds.has(project.id));
+    const deletedIds = new Set(
+      Array.isArray(result.deletedIds) ? result.deletedIds.map(String) : []
+    );
+
+    if (!deletedIds.size) {
+      throw new Error('削除結果を確認できませんでした。');
     }
 
-    const actuallyMoved = targets.filter(project => !remainingIds.has(project.id));
-    if (actuallyMoved.length) {
-      addProjectsToTrash(actuallyMoved);
-      for (const project of actuallyMoved) {
-        delete S.assigneeProgress[project.id];
-        delete S.projectLifecycle[project.id];
-      }
-      saveAssigneeProgress();
-      saveProjectLifecycle();
-    }
+    const moved = targets.filter(project => deletedIds.has(String(project.id)));
+    const failed = targets.filter(project => !deletedIds.has(String(project.id)));
 
+    // サーバーの削除結果だけをローカル状態へ反映する。
+    S.projects = S.projects.filter(project => !deletedIds.has(String(project.id)));
+    addProjectsToTrash(moved);
+
+    for (const project of moved) {
+      delete S.assigneeProgress[project.id];
+      delete S.projectLifecycle[project.id];
+    }
+    saveAssigneeProgress();
+    saveProjectLifecycle();
+
+    S.revision = String(result.revision ?? result.updatedAt ?? S.revision ?? '');
     S.selectedProjectIds.clear();
     $('bulkDeleteDialog').close();
     render();
 
     toast(failed.length
-      ? `${actuallyMoved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
-      : `${actuallyMoved.length}件を一括でごみ箱へ移動しました`);
+      ? `${moved.length}件をごみ箱へ移動しました（${failed.length}件は対象外でした）`
+      : `${moved.length}件を一括でごみ箱へ移動しました`);
   } catch (error) {
-    // 一括API自体が利用できない環境では、安全な直列処理へ切り替える。
-    let moved = [];
-    for (const project of targets) {
-      try {
-        await api(`${API.projects}?id=${encodeURIComponent(project.id)}`, {
-          method: 'DELETE',
-          body: actorPayload()
-        });
-      } catch {}
-    }
-    await load({ silent: true });
-    const remainingIds = new Set(S.projects.map(project => project.id));
-    moved = targets.filter(project => !remainingIds.has(project.id));
-    const failed = targets.filter(project => remainingIds.has(project.id));
-
-    if (moved.length) {
-      addProjectsToTrash(moved);
-      for (const project of moved) {
-        delete S.assigneeProgress[project.id];
-        delete S.projectLifecycle[project.id];
-      }
-      saveAssigneeProgress();
-      saveProjectLifecycle();
-    }
-
-    S.selectedProjectIds.clear();
-    $('bulkDeleteDialog').close();
-    render();
-    toast(failed.length
-      ? `${moved.length}件をごみ箱へ移動しました（${failed.length}件は移動できませんでした）`
-      : `${moved.length}件をごみ箱へ移動しました`);
+    toast(error.message);
   } finally {
     if (confirmButton) {
       confirmButton.disabled = false;
@@ -1229,16 +3178,18 @@ function switchView(view) {
   $(`${view}View`)?.classList.add('active');
   if (view === 'history' && !S.historyLoaded) loadHistory();
   if (view === 'home') requestAnimationFrame(() => scrollScheduleToToday());
+  if (view === 'calendar') renderCalendar();
 }
 
 function bindFixedEvents() {
   $('projectForm').onsubmit = async event => {
     event.preventDefault();
+    $('projectError').textContent = '';
+    $('employeeChoiceError').textContent = '';
     const employeeIds = checkedValues('employeeChoices');
-    if (!employeeIds.length) { $('employeeChoiceError').textContent = '担当者を1人以上選択してください。'; return; }
     const id = $('projectId').value;
     const existing = S.projects.find(item => item.id === id);
-    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: $('displayName').value.trim(), productName: $('productName').value.trim(), client: $('client').value.trim(), employeeIds, employeeId: employeeIds[0], dueDate: $('dueDate').value, notes: $('notes').value.trim(), quantity: existing?.quantity || 0, spec: existing?.spec || '', ...actorPayload() };
+    const body = { id, shipNo: normalizeShipNo($('shipNo').value), displayName: apiTextOrEmptyPlaceholder($('displayName').value), productName: apiTextOrEmptyPlaceholder(existing?.productName || ''), client: safeTrim($('client').value), employeeIds, employeeId: employeeIds[0] || '', dueDate: $('dueDate').value || '', notes: safeTrim($('notes').value), quantity: existing?.quantity || 0, spec: existing?.spec || '', assigneeProgress: existing ? projectAssigneeProgress(existing) : {}, lifecycle: existing ? projectLifecycle(existing) : { status: 'in_progress' }, portalState: existing ? { assigneeProgress: projectAssigneeProgress(existing), lifecycle: projectLifecycle(existing) } : { assigneeProgress: {}, lifecycle: { status: 'in_progress' } }, ...actorPayload() };
     try {
       await api(API.projects, { method: id ? 'PUT' : 'POST', body });
       $('projectDialog').close();
@@ -1292,14 +3243,13 @@ function bindFixedEvents() {
     event.preventDefault();
     if ($('importStep2').hidden) return;
     const rows = [...document.querySelectorAll('[data-import-row]')].filter(row => row.querySelector('.import-select').checked);
-    const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: $('importDisplayName').value.trim(), client: $('importClient').value.trim() };
+    const common = { shipNo: normalizeShipNo($('importShipNo').value), displayName: apiTextOrEmptyPlaceholder($('importDisplayName').value), client: $('importClient').value.trim() };
     const projects = rows.map(row => {
       const ids = [...row.querySelectorAll('.employee-multi-dropdown input[type="checkbox"]:checked')].map(input => input.value);
       const employeeId = ids[0] || '';
-      return { ...common, productName: row.querySelector('.import-product').value.trim(), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
+      return { ...common, productName: apiTextOrEmptyPlaceholder(row.dataset.importProduct || ''), quantity: Number(row.querySelector('.import-quantity').value) || 0, spec: row.querySelector('.import-spec').value.trim(), notes: '', employeeIds: ids, employeeId, dueDate: row.querySelector('.import-date').value };
     });
     if (!projects.length) { $('importError').textContent = '登録する明細を選択してください。'; return; }
-    if (!common.displayName || projects.some(item => !item.productName || !item.employeeIds.length || !item.dueDate)) { $('importError').textContent = '表示名・製品名・担当者・納期を確認してください。'; return; }
     $('importError').textContent = '';
     try {
       await api(API.projects, { method: 'POST', body: { projects, ...actorPayload() } });
@@ -1349,26 +3299,244 @@ function bindFixedEvents() {
       button.classList.remove('is-loading');
     }
   };
-  $('search').oninput = event => { S.q = event.target.value; renderSchedule(); renderDeadlines(); };
+  $('syncStatus').onclick = openSyncDetail;
+  $('syncNow').onclick = async () => {
+    const button = $('syncNow');
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = '同期中…';
+    try {
+      await load();
+      hideRemoteUpdateNotice();
+      updateSyncStatus('同期済み', 'ready');
+      renderSyncDetail();
+      toast('最新の共有データに同期しました');
+    } catch (error) {
+      updateSyncStatus('通信エラー', 'error');
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  };
+  $('openSharedDataManagement').onclick = () => {
+    $('syncDetailDialog').close();
+    switchView('masters');
+    requestAnimationFrame(() => document.querySelector('.portal-data-management')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+
+  $('search').oninput = debounce(event => {
+    S.q = event.target.value;
+    renderSchedule();
+    renderDeadlines();
+  });
   $('prev').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() - 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('next').onclick = () => { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + 1, 1); renderSchedule(); requestAnimationFrame(() => scrollScheduleToToday()); };
   $('refreshHistory').onclick = loadHistory;
   $('historyActionFilter').onchange = renderHistory;
   $('historyActorFilter').onchange = renderHistory;
   $('historySearch').oninput = renderHistory;
-  $('applyUpdate').onclick = async () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; await load(); toast('最新のデータに更新しました'); };
-  $('dismissUpdate').onclick = () => { S.pendingRemoteUpdate = false; $('updateNotice').hidden = true; };
+  $('applyUpdate').onclick = async () => {
+    hideRemoteUpdateNotice();
+    await load();
+    toast('最新のデータに更新しました');
+  };
+  $('dismissUpdate').onclick = () => {
+    hideRemoteUpdateNotice();
+  };
+  $('manageInternalSchedule').onclick = () => openInternalSchedule();
+  $('resetInternalSchedule').onclick = resetInternalScheduleForm;
+  $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
+  $('addInternalScheduleDate').onclick = () => {
+    const date = $('internalScheduleDate').value;
+    if (!date) return toast('追加する日付を選択してください。');
+    setInternalScheduleDates([...getInternalScheduleDates(), date]);
+    $('internalScheduleDate').value = '';
+  };
+  $('internalScheduleDateList').onclick = event => {
+    const button = event.target.closest('[data-remove-internal-date]');
+    if (!button) return;
+    setInternalScheduleDates(getInternalScheduleDates().filter(date => date !== button.dataset.removeInternalDate));
+  };
+  $('internalScheduleForm').onsubmit = async event => {
+    event.preventDefault();
+
+    const form = event.currentTarget;
+    const submitState = beginFormSubmission(form, '保存中…');
+    if (!submitState) {
+      toast('保存処理中です。しばらくお待ちください。');
+      return;
+    }
+
+    try {
+      const type = $('internalScheduleType').value === 'once' ? 'once' : 'monthly';
+      const dates = type === 'once' ? getInternalScheduleDates() : [];
+      const editingId = $('internalScheduleId').value;
+      const item = normalizeInternalSchedule({
+        id: editingId || `internal-${Date.now()}-${crypto.randomUUID?.() || Math.random().toString(36).slice(2)}`,
+        title: safeTrim($('internalScheduleTitle').value),
+        type,
+        day: type === 'monthly' ? Number($('internalScheduleDay').value) || 1 : 1,
+        month: 1,
+        date: dates[0] || '',
+        dates,
+        time: $('internalScheduleTime').value,
+        note: safeTrim($('internalScheduleNote').value)
+      });
+
+      if (!item.title) {
+        toast('予定名を入力してください。');
+        return;
+      }
+      if (type === 'once' && !item.dates.length) {
+        toast('日付を1つ以上追加してください。');
+        return;
+      }
+
+      const duplicateKey = JSON.stringify({
+        action: editingId ? 'edit' : 'create',
+        title: item.title,
+        type: item.type,
+        day: item.day,
+        dates: item.dates,
+        time: item.time,
+        note: item.note
+      });
+
+      if (!editingId && isRecentDuplicateSubmission(duplicateKey, 3000)) {
+        toast('同じ内容の予定を保存中、または保存済みです。');
+        return;
+      }
+
+      // 画面内にも完全一致する新規予定がある場合は二重登録しない。
+      const sameScheduleExists = !editingId && S.internalSchedules.some(existing => {
+        const normalized = normalizeInternalSchedule(existing);
+        return normalized.title === item.title &&
+          normalized.type === item.type &&
+          normalized.day === item.day &&
+          JSON.stringify(normalized.dates || []) === JSON.stringify(item.dates || []) &&
+          normalized.time === item.time &&
+          normalized.note === item.note;
+      });
+
+      if (sameScheduleExists) {
+        toast('同じ内容の社内予定がすでに登録されています。');
+        return;
+      }
+
+      const index = S.internalSchedules.findIndex(x => x.id === item.id);
+      const previousSchedules = S.internalSchedules.map(schedule => ({
+        ...schedule,
+        dates: [...(schedule.dates || [])]
+      }));
+
+      if (index >= 0) S.internalSchedules[index] = item;
+      else S.internalSchedules.push(item);
+
+      try {
+        await saveInternalSchedules(item);
+        renderCalendar();
+        resetInternalScheduleForm();
+        toast(index >= 0 ? '社内予定を更新しました' : '社内予定を登録しました');
+      } catch (error) {
+        S.internalSchedules = previousSchedules;
+        localStorage.setItem(
+          STORAGE_INTERNAL_SCHEDULES,
+          JSON.stringify(S.internalSchedules)
+        );
+        renderSchedule();
+        renderCalendar();
+        renderInternalScheduleList();
+        toast(error.message);
+      }
+    } finally {
+      endFormSubmission(form, submitState);
+    }
+  };
+  $('stickyNoteForm').onsubmit = async event => {
+    event.preventDefault();
+    const date = $('stickyNoteDate').value;
+    const text = safeTrim($('stickyNoteText').value);
+    const previousNotes = { ...S.stickyNotes };
+    if (text) S.stickyNotes[date] = text; else delete S.stickyNotes[date];
+    try {
+      await saveStickyNotes(date);
+      $('stickyNoteDialog').close();
+      toast(text ? 'メモを保存しました' : 'メモを消しました');
+    } catch (error) {
+      S.stickyNotes = previousNotes;
+      localStorage.setItem(STORAGE_STICKY_NOTES, JSON.stringify(S.stickyNotes));
+      renderSchedule();
+      toast(error.message);
+    }
+  };
+  $('clearStickyNote').onclick = () => { $('stickyNoteText').value=''; $('stickyNoteForm').requestSubmit(); };
+  $('calendarPrev').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()-1,1); renderCalendar(); };
+  $('calendarNext').onclick = () => { S.calendarMonth=new Date(S.calendarMonth.getFullYear(),S.calendarMonth.getMonth()+1,1); renderCalendar(); };
+  $('calendarSearch').oninput = debounce(event => {
+    S.calendarQ = event.target.value;
+    renderCalendar();
+  });
+  $('calendarEmployeeFilter').onchange = event => {
+    S.calendarEmployeeId = event.target.value;
+    renderCalendar();
+  };
+  $('calendarStatusFilter').onchange = event => {
+    S.calendarStatusFilter = event.target.value;
+    renderCalendar();
+  };
+  $('deadlineEmployeeFilter').onchange = event => {
+    S.deadlineEmployeeId = event.target.value;
+    renderDeadlines();
+  };
+  $('deadlineStatusFilter').onchange = event => {
+    S.deadlineStatusFilter = event.target.value;
+    renderDeadlines();
+  };
+  $('clearDeadlineFilters').onclick = () => {
+    S.deadlineEmployeeId = '';
+    S.deadlineStatusFilter = '';
+    renderDeadlines();
+  };
+
+  if ($('exportLocalPortalData')) $('exportLocalPortalData').onclick = exportLocalPortalData;
+  if ($('mergePortalBackups')) {
+    $('mergePortalBackups').onclick = async () => {
+      const input = $('portalBackupFiles');
+      const button = $('mergePortalBackups');
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = '共有へ結合中…';
+      try {
+        await importAndMergePortalBackups(input?.files || []);
+        if (input) input.value = '';
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    };
+  }
 }
 
 function bindDelegatedEvents() {
-  document.body.addEventListener('change', event => {
+  document.body.addEventListener('change', async event => {
+    const dutyCheckbox = event.target.closest('#dutyEmployeeChoices input[type="checkbox"]');
+    if (dutyCheckbox) {
+      renderDutyEmployeeChoices(selectedDutyEmployeeIds());
+      return;
+    }
+
     const progressCheckbox = event.target.closest('[data-assignee-complete]');
     if (progressCheckbox) {
       const projectId = progressCheckbox.dataset.projectId;
       const employeeId = progressCheckbox.value;
       const project = S.projects.find(item => item.id === projectId);
       const beforeStatus = project ? projectLifecycle(project).status : 'in_progress';
-      if (setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
+      if (await setAssigneeComplete(projectId, employeeId, progressCheckbox.checked)) {
         const afterStatus = project ? projectLifecycle(project).status : beforeStatus;
         const effect = beforeStatus !== afterStatus && afterStatus === 'production_complete'
           ? 'celebrate-production'
@@ -1396,7 +3564,68 @@ function bindDelegatedEvents() {
     renderDeadlines();
   });
 
+  document.body.addEventListener('change', event => {
+    if (event.target.matches('input[name="dutyScheduleType"]')) updateDutyScheduleFields();
+  });
+
   document.body.addEventListener('submit', async event => {
+    if (event.target.id === 'dutyMasterForm') {
+      event.preventDefault();
+      const id = $('dutyMasterId').value;
+      const employeeIds = selectedDutyEmployeeIds();
+      if (!employeeIds.length) return toast('対象職員を1名以上選択してください。');
+      const existing = S.dutyMasters.find(item => item.id === id);
+      const duty = normalizeDutyMaster({
+        id: id || `duty-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+        name: $('dutyMasterName').value,
+        scheduleType: document.querySelector('input[name="dutyScheduleType"]:checked')?.value || 'weekly',
+        weekday: Number($('dutyMasterWeekday').value),
+        specifiedDates: getDutyMasterDates(),
+        employeeIds,
+        anchorWeek: existing?.anchorWeek || weekStartDate(new Date()),
+        active: existing?.active !== false
+      });
+      if (!duty.name) return toast('当番名を入力してください。');
+      if (duty.scheduleType === 'date' && !duty.specifiedDates.length) return toast('実施日を1日以上追加してください。');
+      const before = S.dutyMasters.map(normalizeDutyMaster);
+      const index = S.dutyMasters.findIndex(item => item.id === duty.id);
+      if (index >= 0) S.dutyMasters[index] = duty;
+      else S.dutyMasters.push(duty);
+      try {
+        await saveDutySharedState();
+        $('dutyMasterDialog').close();
+        toast(index >= 0 ? '当番を更新しました' : '当番を追加しました');
+      } catch (error) {
+        S.dutyMasters = before;
+        renderDutyMasters();
+        renderHomeDutySummary();
+        toast(error.message);
+      }
+      return;
+    }
+
+    if (event.target.id === 'dutyOverrideForm') {
+      event.preventDefault();
+      const dutyId = $('dutyOverrideDutyId').value;
+      const employeeId = $('dutyOverrideEmployee').value;
+      const duty = S.dutyMasters.find(item => item.id === dutyId);
+      if (!duty || !employeeId) return;
+      const occurrenceDate = $('dutyOverrideDate').value;
+      const key = dutyOverrideKey(duty, dutyReferenceDate(duty, occurrenceDate));
+      const before = { ...S.dutyOverrides };
+      S.dutyOverrides[key] = employeeId;
+      try {
+        await saveDutySharedState();
+        $('dutyOverrideDialog').close();
+        toast(duty.scheduleType === 'date' ? '指定日の担当を変更しました' : '今週の担当を変更しました');
+      } catch (error) {
+        S.dutyOverrides = before;
+        renderHomeDutySummary();
+        toast(error.message);
+      }
+      return;
+    }
+
     const form = event.target.closest('[data-master]');
     if (!form) return;
     event.preventDefault();
@@ -1409,12 +3638,98 @@ function bindDelegatedEvents() {
     if (!button) return;
     try {
       if (button.dataset.view) switchView(button.dataset.view);
+      else if (button.id === 'openDutyMasterFromHome' || button.id === 'addDutyMaster' || button.dataset.openDutyMaster !== undefined) {
+        switchView('masters');
+        requestAnimationFrame(() => $('dutyMasterSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        if (button.id === 'addDutyMaster') openDutyMaster();
+      }
+      else if (button.dataset.editDuty) openDutyMaster(button.dataset.editDuty);
+      else if (button.dataset.dutyChange) openDutyOverride(button.dataset.dutyChange, button.dataset.dutyDate || '');
+      else if (button.id === 'addDutyMasterDate') {
+        const date = $('dutyMasterDate').value;
+        if (!date) return toast('追加する日付を選択してください。');
+        setDutyMasterDates([...getDutyMasterDates(), date]);
+      }
+      else if (button.dataset.removeDutyDate) {
+        setDutyMasterDates(getDutyMasterDates().filter(date => date !== button.dataset.removeDutyDate));
+      }
+      else if (button.dataset.dutyEmployeeMove) {
+        const ids = selectedDutyEmployeeIds();
+        const employeeId = button.dataset.employeeId;
+        const index = ids.indexOf(employeeId);
+        const target = button.dataset.dutyEmployeeMove === 'up' ? index - 1 : index + 1;
+        if (index >= 0 && target >= 0 && target < ids.length) {
+          [ids[index], ids[target]] = [ids[target], ids[index]];
+          renderDutyEmployeeChoices(ids);
+        }
+      }
+      else if (button.dataset.toggleDuty) {
+        const duty = S.dutyMasters.find(item => item.id === button.dataset.toggleDuty);
+        if (duty) {
+          duty.active = duty.active === false;
+          try { await saveDutySharedState(); toast(duty.active ? '当番を表示しました' : '当番を非表示にしました'); }
+          catch (error) { duty.active = !duty.active; renderDutyMasters(); renderHomeDutySummary(); toast(error.message); }
+        }
+      }
+      else if (button.dataset.deleteDuty) {
+        const duty = S.dutyMasters.find(item => item.id === button.dataset.deleteDuty);
+        const approved = await confirmDangerAction({ title: '当番を削除しますか？', message: '当番マスターから削除します。', detail: duty?.name || '', confirmText: '削除する' });
+        if (approved && duty) {
+          const beforeMasters = S.dutyMasters.map(normalizeDutyMaster);
+          const beforeOverrides = { ...S.dutyOverrides };
+          S.dutyMasters = S.dutyMasters.filter(item => item.id !== duty.id);
+          Object.keys(S.dutyOverrides).forEach(key => { if (key.startsWith(`${duty.id}:`)) delete S.dutyOverrides[key]; });
+          try { await saveDutySharedState(); toast('当番を削除しました'); }
+          catch (error) { S.dutyMasters = beforeMasters; S.dutyOverrides = beforeOverrides; renderDutyMasters(); renderHomeDutySummary(); toast(error.message); }
+        }
+      }
+      else if (button.id === 'clearDutyOverride') {
+        const dutyId = $('dutyOverrideDutyId').value;
+        const duty = S.dutyMasters.find(item => item.id === dutyId);
+        if (!duty) return;
+        const key = dutyOverrideKey(duty, dutyReferenceDate(duty, $('dutyOverrideDate').value));
+        const before = { ...S.dutyOverrides };
+        delete S.dutyOverrides[key];
+        try { await saveDutySharedState(); $('dutyOverrideDialog').close(); toast('通常担当に戻しました'); }
+        catch (error) { S.dutyOverrides = before; renderHomeDutySummary(); toast(error.message); }
+      }
       else if (button.id === 'actorSettingsButton' || button.id === 'currentActorStatus') {
         renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
         $('actorSettingsError').textContent = '';
         $('actorSettingsDialog').showModal();
       }
       else if (button.id === 'addProject' || button.dataset.add !== undefined) openProject();
+      else if (button.dataset.stickyDate) openStickyNote(button.dataset.stickyDate);
+      else if (button.dataset.openInternalSchedule !== undefined) openInternalSchedule(button.dataset.internalId || '');
+      else if (button.dataset.editInternal) openInternalSchedule(button.dataset.editInternal);
+      else if (button.dataset.deleteInternal) {
+        const item=S.internalSchedules.find(x=>x.id===button.dataset.deleteInternal);
+        const approved=await confirmDangerAction({title:'社内予定を削除しますか？',message:'登録済みの社内予定から削除します。',detail:item?.title||'',confirmText:'削除する'});
+        if (approved) {
+          const previousSchedules = S.internalSchedules.map(schedule => ({ ...schedule }));
+          const deletedId = button.dataset.deleteInternal;
+          S.internalSchedules = S.internalSchedules.filter(x => x.id !== deletedId);
+          try {
+            localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+            await deleteSharedInternalSchedule(deletedId);
+            renderSchedule();
+            renderCalendar();
+            renderInternalScheduleList();
+            toast('社内予定を削除しました');
+          } catch (error) {
+            S.internalSchedules = previousSchedules;
+            localStorage.setItem(STORAGE_INTERNAL_SCHEDULES, JSON.stringify(S.internalSchedules));
+            renderSchedule();
+            renderCalendar();
+            renderInternalScheduleList();
+            toast(error.message);
+          }
+        }
+      }
+      else if (button.dataset.copyProject) {
+        const source=S.projects.find(x=>x.id===button.dataset.copyProject);
+        if(source){ $('detailDialog')?.close(); openProject(); $('shipNo').value=source.shipNo||''; $('displayName').value=source.displayName||''; $('client').value=source.client||''; $('dueDate').value=source.dueDate||''; $('notes').value=source.notes||''; renderEmployeeCheckboxes('employeeChoices',projectEmployeeIds(source)); toast('案件内容をコピーしました。納期などを確認して登録してください。'); }
+      }
       else if (button.id === 'importExcel') openImport();
       else if (button.dataset.close !== undefined) button.closest('dialog')?.close();
       else if (button.dataset.edit) openProject(button.dataset.edit);
@@ -1448,18 +3763,51 @@ function bindDelegatedEvents() {
           ? { title: '納品完了にしますか？', message: 'この案件を納品済みとして記録します。', detail: label, note: '納品完了はあとから取り消せます。', confirmText: '納品完了にする', tone: 'primary', icon: '✓' }
           : { title: `${lifecycleLabel(targetStatus)}に変更しますか？`, message: '案件ステータスを変更します。', detail: label, note: '変更後も必要に応じて戻せます。', confirmText: '変更する', tone: 'warning', icon: '↶' };
         const approved = await portalConfirm(settings);
-        if (approved && setProjectLifecycle(projectId, targetStatus)) {
+        if (approved && await setProjectLifecycle(projectId, targetStatus)) {
           openDetail(projectId, targetStatus === 'delivered' ? 'celebrate-delivery' : 'status-updated');
           toast(`${lifecycleLabel(targetStatus)}に変更しました`);
         }
       }
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
       else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else if (button.dataset.materialEdit) { const item=S.materials.find(x=>x.id===button.dataset.materialEdit); if(item){ $('materialMasterId').value=item.id; $('materialMasterName').value=item.name; $('materialMasterHeight').value=item.height; $('materialMasterHeightUnit').value=item.heightUnit; $('materialMasterWidth').value=item.width; $('materialMasterWidthUnit').value=item.widthUnit; $('materialMasterPrice').value=item.price; $('cancelMaterialEdit').hidden=false; switchView('calculator'); switchCalculatorTab('materials'); } }
+      else if (button.dataset.materialHistory) { openMaterialHistory(button.dataset.materialHistory); }
+      else if (button.dataset.materialEdit) {
+        const rawItem = S.materials.find(x => x.id === button.dataset.materialEdit);
+        if (rawItem) {
+          const item = normalizeMaterial(rawItem);
+          $('materialMasterId').value = item.id;
+          $('materialMasterName').value = item.name;
+          $('materialMasterHeight').value = item.height;
+          $('materialMasterHeightUnit').value = item.heightUnit;
+          $('materialMasterWidth').value = item.width;
+          $('materialMasterWidthUnit').value = item.widthUnit;
+          $('materialMasterPrice').value = item.price;
+          $('materialMasterEffectiveDate').value = item.effectiveDate || todayIsoDate();
+          $('materialMasterSupplier').value = item.supplier || '';
+          $('materialMasterChangeReason').value = '';
+          $('cancelMaterialEdit').hidden = false;
+          switchView('calculator');
+          switchCalculatorTab('materials');
+        }
+      }
       else if (button.dataset.materialDelete) {
         const item = S.materials.find(x => x.id === button.dataset.materialDelete);
-        const approved = await portalConfirm({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する', tone: 'danger', icon: '！' });
-        if (approved) { S.materials=S.materials.filter(x=>x.id!==button.dataset.materialDelete); saveMaterials(); toast('材料を削除しました'); }
+        const approved = await confirmDangerAction({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する' });
+        if (approved) {
+          const previousMaterials = S.materials.map(material => normalizeMaterial(material));
+          S.materials = S.materials.filter(
+            x => x.id !== button.dataset.materialDelete
+          );
+          try {
+            await saveMaterials();
+            toast('材料を全PCから削除しました');
+          } catch (error) {
+            S.materials = previousMaterials;
+            localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+            renderMaterialMaster();
+            toast(`材料マスタの共有削除に失敗しました：${error.message}`);
+          }
+        }
       }
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
@@ -1467,7 +3815,7 @@ function bindDelegatedEvents() {
       else if (button.dataset.move) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.id, action: 'move', direction: button.dataset.move } }); await load(); }
       else if (button.dataset.mdelete) {
         const item = S.masters[button.dataset.type]?.find(x => x.id === button.dataset.mdelete);
-        const approved = await portalConfirm({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する', tone: 'danger', icon: '！' });
+        const approved = await confirmDangerAction({ title: 'マスタ項目を削除しますか？', message: 'この項目をマスタから削除します。', detail: item?.name || '', note: '使用中の項目は削除できない場合があります。', confirmText: '削除する' });
         if (approved) { await api(`${API.masters}?id=${encodeURIComponent(button.dataset.mdelete)}`, { method: 'DELETE', body: { type: button.dataset.type } }); await load(); }
       }
     } catch (error) { toast(error.message); }
@@ -1475,15 +3823,228 @@ function bindDelegatedEvents() {
 }
 
 
+function todayIsoDate() {
+  return fd(new Date());
+}
+
+function normalizeMaterialHistoryEntry(entry = {}) {
+  return {
+    effectiveDate: safeTrim(entry.effectiveDate) || todayIsoDate(),
+    price: Number(entry.price) || 0,
+    supplier: safeTrim(entry.supplier),
+    reason: safeTrim(entry.reason),
+    recordedAt: safeTrim(entry.recordedAt) || new Date().toISOString(),
+    recordedBy: safeTrim(entry.recordedBy)
+  };
+}
+
+function normalizeMaterial(item = {}) {
+  const history = Array.isArray(item.priceHistory)
+    ? item.priceHistory.map(normalizeMaterialHistoryEntry)
+    : [];
+  const currentDate = safeTrim(item.effectiveDate) || todayIsoDate();
+  const currentPrice = Number(item.price) || 0;
+
+  if (!history.length) {
+    history.push(normalizeMaterialHistoryEntry({
+      effectiveDate: currentDate,
+      price: currentPrice,
+      supplier: item.supplier,
+      reason: item.changeReason || '既存価格',
+      recordedAt: item.updatedAt || new Date().toISOString()
+    }));
+  }
+
+  history.sort((a, b) =>
+    String(a.effectiveDate).localeCompare(String(b.effectiveDate)) ||
+    String(a.recordedAt).localeCompare(String(b.recordedAt))
+  );
+
+  const latest = history[history.length - 1];
+  return {
+    ...item,
+    price: Number(latest?.price ?? currentPrice),
+    effectiveDate: latest?.effectiveDate || currentDate,
+    supplier: safeTrim(latest?.supplier || item.supplier),
+    changeReason: safeTrim(latest?.reason || item.changeReason),
+    priceHistory: history
+  };
+}
+
+function materialPriceAt(item, targetDate = '') {
+  const material = normalizeMaterial(item);
+  const date = safeTrim(targetDate) || todayIsoDate();
+  const applicable = material.priceHistory
+    .filter(entry => entry.effectiveDate <= date)
+    .sort((a, b) =>
+      String(a.effectiveDate).localeCompare(String(b.effectiveDate)) ||
+      String(a.recordedAt).localeCompare(String(b.recordedAt))
+    );
+  return applicable.length ? applicable[applicable.length - 1] : material.priceHistory[0];
+}
+
+function openMaterialHistory(id) {
+  const item = S.materials.find(material => material.id === id);
+  if (!item) return;
+  const material = normalizeMaterial(item);
+  $('materialHistoryTitle').textContent = `${material.name} の価格履歴`;
+  $('materialHistoryList').innerHTML = [...material.priceHistory]
+    .sort((a, b) => String(b.effectiveDate).localeCompare(String(a.effectiveDate)))
+    .map(entry => `<article class="material-history-entry">
+      <div class="material-history-date">${esc(entry.effectiveDate)}</div>
+      <div class="material-history-main">
+        <strong>${yen(Number(entry.price), 0)}</strong>
+        <p>${entry.supplier ? `仕入先：${esc(entry.supplier)}` : '仕入先：—'}</p>
+        <p>${entry.reason ? `理由：${esc(entry.reason)}` : '理由：—'}</p>
+      </div>
+    </article>`).join('') || '<div class="notice">価格履歴はありません。</div>';
+  $('materialHistoryDialog').showModal();
+}
+
+function updateMaterialPriceFromSelection() {
+  const id = $('areaMaterialSelect')?.value || '';
+  const item = S.materials.find(material => material.id === id);
+  if (!item) return;
+  const targetDate = $('materialPriceDate')?.value || todayIsoDate();
+  const entry = materialPriceAt(item, targetDate);
+  $('materialPrice').value = entry?.price ?? '';
+  if ($('materialPriceSource')) {
+    $('materialPriceSource').textContent =
+      `${entry?.effectiveDate || '—'}改定価格${entry?.supplier ? ` ／ ${entry.supplier}` : ''}を使用しています。`;
+  }
+}
+
+
+function parseMaterialSharedState(project) {
+  if (!project) return null;
+  try {
+    const parsed = JSON.parse(String(project.notes || '{}'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMaterialSharedState(state = {}) {
+  return {
+    version: 1,
+    updatedAt: safeTrim(state.updatedAt),
+    materials: Array.isArray(state.materials)
+      ? state.materials.map(normalizeMaterial)
+      : []
+  };
+}
+
+function applyMaterialSharedState(project) {
+  const state = normalizeMaterialSharedState(
+    parseMaterialSharedState(project) || {}
+  );
+  S.materialSharedProjectId = project?.id || '';
+  S.materials = state.materials;
+  localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+  renderMaterialMaster();
+  return true;
+}
+
+function materialSharedStateBody(state = {}) {
+  const employeeId = sharedPortalEmployeeId();
+  if (!employeeId) {
+    throw new Error('材料マスタの共有保存には社員マスタが1名以上必要です。');
+  }
+
+  const normalized = normalizeMaterialSharedState(state);
+  const payload = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    materials: normalized.materials
+  };
+
+  return {
+    id: S.materialSharedProjectId || '',
+    shipNo: MATERIAL_SHARED_SHIP_NO,
+    displayName: '材料マスタ共有設定',
+    productName: '材料・価格履歴共有データ',
+    client: MATERIAL_SHARED_CLIENT,
+    employeeIds: [employeeId],
+    employeeId,
+    dueDate: '2099-12-31',
+    notes: JSON.stringify(payload),
+    quantity: 0,
+    spec: MATERIAL_SHARED_SPEC,
+    completed: false,
+    ...actorPayload()
+  };
+}
+
+async function persistMaterialSharedState(materials = S.materials) {
+  return queueSharedPortalWrite(async () => {
+    const before = await api(API.projects);
+    const sharedProject =
+      (before.projects || []).find(isMaterialSharedProject) || null;
+
+    if (sharedProject?.id) {
+      S.materialSharedProjectId = String(sharedProject.id);
+    }
+
+    const state = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      materials: materials.map(normalizeMaterial)
+    };
+
+    const result = await api(API.projects, {
+      method: sharedProject ? 'PUT' : 'POST',
+      body: materialSharedStateBody(state)
+    });
+
+    const confirmed = await api(API.projects);
+    const confirmedProject =
+      (confirmed.projects || []).find(isMaterialSharedProject) || null;
+
+    if (!confirmedProject) {
+      throw new Error('材料マスタ共有データを確認できませんでした。');
+    }
+
+    const confirmedState = normalizeMaterialSharedState(
+      parseMaterialSharedState(confirmedProject) || {}
+    );
+    const expected = normalizeMaterialSharedState(state);
+
+    if (JSON.stringify(confirmedState.materials) !== JSON.stringify(expected.materials)) {
+      throw new Error('材料マスタの共有保存結果を確認できませんでした。');
+    }
+
+    S.materialSharedProjectId = String(confirmedProject.id || '');
+    S.materials = confirmedState.materials;
+    localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+    renderMaterialMaster();
+
+    S.revision = String(
+      confirmed.revision ??
+      confirmed.updatedAt ??
+      result?.revision ??
+      result?.updatedAt ??
+      S.revision ??
+      ''
+    );
+    return true;
+  });
+}
+
 function loadMaterials() {
   try { S.materials = JSON.parse(localStorage.getItem(STORAGE_MATERIALS) || '[]'); }
   catch { S.materials = []; }
   if (!Array.isArray(S.materials)) S.materials = [];
+  S.materials = S.materials.map(normalizeMaterial);
 }
 
-function saveMaterials() {
+
+async function saveMaterials() {
   localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
   renderMaterialMaster();
+  await persistMaterialSharedState(S.materials);
 }
 
 function toMm(value, unit) {
@@ -1505,23 +4066,44 @@ function renderMaterialMaster() {
   const select = $('areaMaterialSelect');
   if (select) {
     const current = select.value;
-    select.innerHTML = '<option value="">選択しない</option>' + S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    select.innerHTML = '<option value="">選択しない</option>' +
+      S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
     select.value = S.materials.some(item => item.id === current) ? current : '';
   }
   const list = $('materialMasterList');
   if (!list) return;
-  list.innerHTML = S.materials.length ? S.materials.map(item => `<article class="material-row"><div><strong>${esc(item.name)}</strong><span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span><small>${yen(Number(item.price), 0)}</small></div><div><button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button><button type="button" data-material-edit="${esc(item.id)}">編集</button><button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button></div></article>`).join('') : '<div class="notice">材料はまだ登録されていません。</div>';
+  list.innerHTML = S.materials.length
+    ? S.materials.map(rawItem => {
+        const item = normalizeMaterial(rawItem);
+        return `<article class="material-row">
+          <div>
+            <strong>${esc(item.name)}</strong>
+            <span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span>
+            <small>${yen(Number(item.price), 0)} ／ 価格改定日 ${esc(item.effectiveDate || '—')}</small>
+            ${item.supplier ? `<small>仕入先：${esc(item.supplier)}</small>` : ''}
+          </div>
+          <div>
+            <button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button>
+            <button type="button" class="secondary" data-material-history="${esc(item.id)}">価格履歴 ${item.priceHistory.length}件</button>
+            <button type="button" data-material-edit="${esc(item.id)}">編集</button>
+            <button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button>
+          </div>
+        </article>`;
+      }).join('')
+    : '<div class="notice">材料はまだ登録されていません。</div>';
 }
 
 function applyMaterial(id) {
-  const item = S.materials.find(x => x.id === id);
-  if (!item) return;
+  const rawItem = S.materials.find(x => x.id === id);
+  if (!rawItem) return;
+  const item = normalizeMaterial(rawItem);
   $('areaMaterialSelect').value = item.id;
   $('materialHeight').value = item.height;
   $('materialHeightUnit').value = item.heightUnit;
   $('materialWidth').value = item.width;
   $('materialWidthUnit').value = item.widthUnit;
-  $('materialPrice').value = item.price;
+  if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
+  updateMaterialPriceFromSelection();
 }
 
 function switchCalculatorTab(tab) {
@@ -1532,7 +4114,10 @@ function switchCalculatorTab(tab) {
 
 function bindCalculatorEvents() {
   document.querySelectorAll('[data-calc-tab]').forEach(button => button.onclick = () => switchCalculatorTab(button.dataset.calcTab));
-  $('areaMaterialSelect').onchange = event => { if (event.target.value) applyMaterial(event.target.value); };
+  $('areaMaterialSelect').onchange = event => {
+    if (event.target.value) applyMaterial(event.target.value);
+  };
+  $('materialPriceDate').onchange = updateMaterialPriceFromSelection;
   $('areaCalculatorForm').onsubmit = event => {
     event.preventDefault();
     const mh = toMm($('materialHeight').value, $('materialHeightUnit').value);
@@ -1555,13 +4140,72 @@ function bindCalculatorEvents() {
     if (!(price >= 0) || !(count > 0)) return toast('材料価格と取り数を正しく入力してください。');
     const cost=price/count; $('yieldCostResult').textContent=yen(cost); $('yieldCostCeil').textContent=yen(Math.ceil(cost),0); $('yieldFormulaResult').textContent=`${price.toLocaleString()} ÷ ${count.toLocaleString()}`;
   };
-  $('materialMasterForm').onsubmit = event => {
-    event.preventDefault(); const id=$('materialMasterId').value || `mat-${Date.now()}`;
-    const item={id,name:$('materialMasterName').value.trim(),height:Number($('materialMasterHeight').value),heightUnit:$('materialMasterHeightUnit').value,width:Number($('materialMasterWidth').value),widthUnit:$('materialMasterWidthUnit').value,price:Number($('materialMasterPrice').value)};
-    if (!item.name || !(item.height>0) || !(item.width>0) || !(item.price>=0)) return toast('材料情報を正しく入力してください。');
-    const index=S.materials.findIndex(x=>x.id===id); if(index>=0) S.materials[index]=item; else S.materials.push(item); saveMaterials(); event.target.reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; toast(index>=0?'材料を更新しました':'材料を登録しました');
+  $('materialMasterForm').onsubmit = async event => {
+    event.preventDefault();
+    const id = $('materialMasterId').value || `mat-${Date.now()}`;
+    const index = S.materials.findIndex(item => item.id === id);
+    const previous = index >= 0 ? normalizeMaterial(S.materials[index]) : null;
+    const price = Number($('materialMasterPrice').value);
+    const effectiveDate = $('materialMasterEffectiveDate').value;
+    const supplier = safeTrim($('materialMasterSupplier').value);
+    const reason = safeTrim($('materialMasterChangeReason').value);
+
+    if (!safeTrim($('materialMasterName').value) ||
+        !(Number($('materialMasterHeight').value) > 0) ||
+        !(Number($('materialMasterWidth').value) > 0) ||
+        !(price >= 0) || !effectiveDate) {
+      return toast('材料情報と価格改定日を正しく入力してください。');
+    }
+
+    const history = previous ? [...previous.priceHistory] : [];
+    const latest = history[history.length - 1];
+    if (!latest || Number(latest.price) !== price || latest.effectiveDate !== effectiveDate ||
+        safeTrim(latest.supplier) !== supplier) {
+      history.push(normalizeMaterialHistoryEntry({
+        effectiveDate, price, supplier,
+        reason: reason || (previous ? '価格改定' : '新規登録'),
+        recordedAt: new Date().toISOString(),
+        recordedBy: employeeName(S.actorEmployeeId)
+      }));
+    }
+
+    const item = normalizeMaterial({
+      id,
+      name: safeTrim($('materialMasterName').value),
+      height: Number($('materialMasterHeight').value),
+      heightUnit: $('materialMasterHeightUnit').value,
+      width: Number($('materialMasterWidth').value),
+      widthUnit: $('materialMasterWidthUnit').value,
+      price, effectiveDate, supplier, changeReason: reason, priceHistory: history
+    });
+
+    const previousMaterials = S.materials.map(material => normalizeMaterial(material));
+    if (index >= 0) S.materials[index] = item; else S.materials.push(item);
+
+    try {
+      await saveMaterials();
+      event.target.reset();
+      $('materialMasterId').value = '';
+      $('materialMasterEffectiveDate').value = todayIsoDate();
+      $('cancelMaterialEdit').hidden = true;
+      toast(index >= 0
+        ? '材料と価格履歴を全PCへ更新しました'
+        : '材料を全PCへ登録しました');
+    } catch (error) {
+      S.materials = previousMaterials;
+      localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+      renderMaterialMaster();
+      toast(`材料マスタの共有保存に失敗しました：${error.message}`);
+    }
   };
-  $('cancelMaterialEdit').onclick=()=>{ $('materialMasterForm').reset(); $('materialMasterId').value=''; $('cancelMaterialEdit').hidden=true; };
+  $('cancelMaterialEdit').onclick = () => {
+    $('materialMasterForm').reset();
+    $('materialMasterId').value = '';
+    $('materialMasterEffectiveDate').value = todayIsoDate();
+    $('cancelMaterialEdit').hidden = true;
+  };
+  if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
+  if (!$('materialMasterEffectiveDate').value) $('materialMasterEffectiveDate').value = todayIsoDate();
 }
 
 async function init() {
@@ -1570,6 +4214,7 @@ async function init() {
   loadAssigneeProgress();
   loadTrash();
   loadProjectLifecycle();
+  loadInternalTools();
   renderMaterialMaster();
   bindCalculatorEvents();
   bindFixedEvents();
@@ -1577,6 +4222,8 @@ async function init() {
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
   await load();
   startPolling();
+  clearInterval(S.reminderTimer);
+  S.reminderTimer = setInterval(renderHomeInternalReminder, 60000);
 }
 
 init();
