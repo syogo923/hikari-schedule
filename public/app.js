@@ -4228,8 +4228,6 @@ async function init() {
   S.reminderTimer = setInterval(renderHomeInternalReminder, 60000);
 }
 
-init();
-
 
 /* Ver4.0 Backup Center */
 const BACKUP_LAST_AT_KEY = 'hikariPortal.backupLastAt.v1';
@@ -4344,3 +4342,6 @@ function bindBackupCenterEvents() {
 
   if ($('openSystemHistory')) $('openSystemHistory').onclick = () => switchView('history');
 }
+
+// Start after Ver4.0 modules are initialized.
+init();
