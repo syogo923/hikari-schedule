@@ -234,6 +234,14 @@
       マスタ管理
     </button>
 
+    <button
+      type="button"
+      class="nav"
+      data-view="system"
+    >
+      システム管理
+    </button>
+
   </nav>
 
   <main>
@@ -654,6 +662,73 @@
   </main>
 
   <!-- 案件追加・編集ダイアログ -->
+
+    <section id="systemView" class="view">
+      <div class="system-admin-shell">
+        <div class="system-admin-head">
+          <div>
+            <span class="eyebrow">SYSTEM MANAGEMENT</span>
+            <h2>システム管理</h2>
+            <p>光ポータルの共有データを安全に保存・復元します。</p>
+          </div>
+          <span class="system-version">Ver4.0</span>
+        </div>
+
+        <div class="backup-status-card">
+          <div>
+            <span class="backup-status-label">最終バックアップ</span>
+            <strong id="backupLastAt">このPCではまだありません</strong>
+            <small id="backupLastName">バックアップはこのPCへ保存されます</small>
+          </div>
+          <button id="backupNow" type="button" class="primary">📦 今すぐバックアップ</button>
+        </div>
+
+        <div class="system-admin-grid">
+          <article class="system-tool-card">
+            <span class="system-tool-icon">📥</span>
+            <h3>復元</h3>
+            <p>完全バックアップから会社全体の共有データをその時点へ戻します。</p>
+            <button id="restoreBackup" type="button" class="secondary">バックアップから復元</button>
+          </article>
+
+          <article class="system-tool-card">
+            <span class="system-tool-icon">📤</span>
+            <h3>エクスポート</h3>
+            <p>必要なデータだけをファイルとしてこのPCへ書き出します。</p>
+            <select id="exportBackupScope" aria-label="エクスポート対象">
+              <option value="all">すべての共有データ</option>
+              <option value="projects">案件・進捗データ</option>
+              <option value="masters">マスタデータ</option>
+              <option value="schedules">社内予定</option>
+              <option value="deadlines">納期データ</option>
+            </select>
+            <button id="exportBackup" type="button" class="secondary">エクスポート</button>
+          </article>
+
+          <article class="system-tool-card">
+            <span class="system-tool-icon">📁</span>
+            <h3>インポート</h3>
+            <p>光ポータルから書き出したデータを読み込みます。</p>
+            <button id="importBackup" type="button" class="secondary">ファイルを選択</button>
+          </article>
+
+          <article class="system-tool-card">
+            <span class="system-tool-icon">📜</span>
+            <h3>更新履歴</h3>
+            <p>これまでの案件更新履歴を確認します。</p>
+            <button id="openSystemHistory" type="button" class="secondary">更新履歴を開く</button>
+          </article>
+        </div>
+
+        <div class="backup-note">
+          <strong>バックアップについて</strong>
+          <p>バックアップ対象は各PC固有のデータではなく、Netlify上で全PCが共有している案件・マスタ・社内予定・納期データです。そのため、どれか1台のPCでバックアップすれば共有データ全体を保存できます。</p>
+        </div>
+      </div>
+      <input id="restoreBackupFile" type="file" accept=".json,application/json" hidden>
+      <input id="importBackupFile" type="file" accept=".json,application/json" hidden>
+    </section>
+
   <dialog id="projectDialog">
 
     <form id="projectForm">
@@ -1320,7 +1395,7 @@
   ></div>
 
   <script
-    src="/app.js?v=3.7-duty-cat-rudy-tail"
+    src="/app.js?v=4.0-backup-center"
     defer
   ></script>
 

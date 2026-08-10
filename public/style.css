@@ -3926,3 +3926,39 @@ input[aria-busy="true"] {
   }
 }
 
+
+
+/* Ver4.0: schedule employee columns + System Management */
+#scheduleTable thead th:nth-child(n+4),
+#scheduleTable tbody td:nth-child(n+4){
+  width:230px;
+  min-width:230px;
+  max-width:230px;
+}
+#scheduleTable{table-layout:fixed;min-width:1610px}
+
+.system-admin-shell{max-width:1180px;margin:0 auto;padding:30px 24px 48px}
+.system-admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
+.system-admin-head h2{margin:4px 0 6px;font-size:30px}
+.system-admin-head p{margin:0;color:#64748b}
+.system-version{padding:8px 13px;border:1px solid #c9d8e8;border-radius:999px;background:#fff;color:#315777;font-weight:800}
+.backup-status-card{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px;border:1px solid #d7e3ee;border-radius:16px;background:linear-gradient(135deg,#f7fbff,#f3fbf7);box-shadow:0 7px 20px rgba(15,23,42,.045)}
+.backup-status-card>div{display:grid;gap:4px}
+.backup-status-label{color:#4f7394;font-size:13px;font-weight:800}
+.backup-status-card strong{font-size:20px}
+.backup-status-card small{color:#718096}
+.system-admin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}
+.system-tool-card{display:grid;align-content:start;gap:10px;padding:20px;border:1px solid #dbe5ee;border-radius:15px;background:#fff;box-shadow:0 5px 16px rgba(15,23,42,.035)}
+.system-tool-card h3{margin:0;font-size:20px}
+.system-tool-card p{min-height:42px;margin:0;color:#64748b;line-height:1.65}
+.system-tool-card select{width:100%;min-height:44px;border:1px solid #cad6e3;border-radius:10px;background:#fff;padding:0 12px}
+.system-tool-card button{justify-self:start}
+.system-tool-icon{font-size:25px}
+.backup-note{margin-top:18px;padding:16px 18px;border-left:4px solid #5a91bd;border-radius:10px;background:#f5f9fd;color:#39546d}
+.backup-note p{margin:6px 0 0;line-height:1.7}
+@media(max-width:760px){
+  .system-admin-shell{padding:20px 12px 36px}
+  .system-admin-head,.backup-status-card{align-items:stretch;flex-direction:column}
+  .system-admin-grid{grid-template-columns:1fr}
+  .system-tool-card p{min-height:0}
+}

@@ -18,7 +18,8 @@
 const API = {
   projects: '/api/projects',
   masters: '/api/masters',
-  excel: '/api/excel-import'
+  excel: '/api/excel-import',
+  backup: '/api/backup-center'
 };
 
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
@@ -3182,6 +3183,7 @@ function switchView(view) {
 }
 
 function bindFixedEvents() {
+  bindBackupCenterEvents();
   $('projectForm').onsubmit = async event => {
     event.preventDefault();
     $('projectError').textContent = '';
@@ -4227,3 +4229,118 @@ async function init() {
 }
 
 init();
+
+
+/* Ver4.0 Backup Center */
+const BACKUP_LAST_AT_KEY = 'hikariPortal.backupLastAt.v1';
+const BACKUP_LAST_NAME_KEY = 'hikariPortal.backupLastName.v1';
+
+function backupStamp(date = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}_${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+}
+
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function renderBackupStatus() {
+  const at = localStorage.getItem(BACKUP_LAST_AT_KEY);
+  const name = localStorage.getItem(BACKUP_LAST_NAME_KEY);
+  if ($('backupLastAt')) $('backupLastAt').textContent = at ? new Date(at).toLocaleString('ja-JP') : 'このPCではまだありません';
+  if ($('backupLastName')) $('backupLastName').textContent = name || 'バックアップはこのPCへ保存されます';
+}
+
+async function getBackupBundle() {
+  return await api(API.backup);
+}
+
+async function readBackupFile(file) {
+  if (!file) throw new Error('ファイルを選択してください。');
+  let parsed;
+  try { parsed = JSON.parse(await file.text()); }
+  catch { throw new Error('バックアップファイルを読み取れませんでした。'); }
+  if (!parsed || parsed.format !== 'hikari-portal-backup' || !parsed.data) {
+    throw new Error('光ポータルのバックアップファイルではありません。');
+  }
+  return parsed;
+}
+
+function exportScopedBundle(bundle, scope) {
+  if (scope === 'all') return bundle;
+  const keys = {
+    projects: ['projects','projectHistory','projectState'],
+    masters: ['masters'],
+    schedules: ['schedules'],
+    deadlines: ['deadlines']
+  }[scope] || [];
+  return {
+    ...bundle,
+    exportScope: scope,
+    data: Object.fromEntries(keys.filter(key => Object.prototype.hasOwnProperty.call(bundle.data, key)).map(key => [key, bundle.data[key]]))
+  };
+}
+
+function bindBackupCenterEvents() {
+  renderBackupStatus();
+
+  if ($('backupNow')) $('backupNow').onclick = async () => {
+    const button = $('backupNow');
+    const original = button.textContent;
+    try {
+      button.disabled = true; button.textContent = 'バックアップ作成中…';
+      const bundle = await getBackupBundle();
+      const name = `光ポータル_完全バックアップ_${backupStamp()}.json`;
+      downloadJson(bundle, name);
+      localStorage.setItem(BACKUP_LAST_AT_KEY, bundle.createdAt || new Date().toISOString());
+      localStorage.setItem(BACKUP_LAST_NAME_KEY, name);
+      renderBackupStatus();
+      toast('共有データ全体をバックアップしました');
+    } catch (error) { toast(error.message); }
+    finally { button.disabled = false; button.textContent = original; }
+  };
+
+  if ($('restoreBackup')) $('restoreBackup').onclick = () => $('restoreBackupFile').click();
+  if ($('restoreBackupFile')) $('restoreBackupFile').onchange = async event => {
+    try {
+      const backup = await readBackupFile(event.target.files[0]);
+      if (!confirm('共有データ全体をこのバックアップの状態へ復元します。\n現在のデータは上書きされます。続けますか？')) return;
+      await api(API.backup, { method:'POST', body:{ action:'restore', backup } });
+      toast('復元しました。最新データを読み込みます');
+      await load();
+    } catch (error) { toast(error.message); }
+    finally { event.target.value = ''; }
+  };
+
+  if ($('exportBackup')) $('exportBackup').onclick = async () => {
+    try {
+      const scope = $('exportBackupScope').value;
+      const bundle = exportScopedBundle(await getBackupBundle(), scope);
+      const label = {all:'全データ',projects:'案件',masters:'マスタ',schedules:'社内予定',deadlines:'納期'}[scope] || 'データ';
+      downloadJson(bundle, `光ポータル_${label}_エクスポート_${backupStamp()}.json`);
+      toast(`${label}をエクスポートしました`);
+    } catch (error) { toast(error.message); }
+  };
+
+  if ($('importBackup')) $('importBackup').onclick = () => $('importBackupFile').click();
+  if ($('importBackupFile')) $('importBackupFile').onchange = async event => {
+    try {
+      const backup = await readBackupFile(event.target.files[0]);
+      if (!confirm('選択したデータを光ポータルへインポートします。該当する共有データは上書きされます。続けますか？')) return;
+      await api(API.backup, { method:'POST', body:{ action:'import', backup } });
+      toast('インポートしました');
+      await load();
+    } catch (error) { toast(error.message); }
+    finally { event.target.value = ''; }
+  };
+
+  if ($('openSystemHistory')) $('openSystemHistory').onclick = () => switchView('history');
+}
