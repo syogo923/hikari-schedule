@@ -1161,7 +1161,7 @@
   <dialog id="internalScheduleDialog" class="internal-schedule-dialog">
     <div class="internal-schedule-panel">
       <header><div><h2>社内予定設定</h2></div><button type="button" data-close>×</button></header>
-      <form id="internalScheduleForm">
+      <form id="internalScheduleForm" novalidate>
         <input id="internalScheduleId" type="hidden">
         <label>予定名<input id="internalScheduleTitle" required maxlength="80" placeholder="給与支給・請求締め・棚卸など"></label>
         <div class="internal-schedule-grid">
@@ -1187,7 +1187,7 @@
           <label>時刻<input id="internalScheduleTime" type="time"></label>
         </div>
         <label>補足<input id="internalScheduleNote" maxlength="120" placeholder="任意"></label>
-        <footer><button type="button" id="resetInternalSchedule" class="secondary">新規入力</button><button type="submit" class="primary">保存</button></footer>
+        <footer><button type="button" id="resetInternalSchedule" class="secondary">新規入力</button><button type="submit" class="primary" formnovalidate>保存</button></footer>
       </form>
       <section><h3>登録済みの社内予定</h3><div id="internalScheduleList"></div></section>
     </div>
@@ -1351,7 +1351,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.2-system-layout"
+    src="/app.js?v=4.0.3-mac-win-schedule-fix"
     defer
   ></script>
 

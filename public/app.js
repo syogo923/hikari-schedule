@@ -3349,6 +3349,11 @@ function bindFixedEvents() {
     hideRemoteUpdateNotice();
   };
   $('manageInternalSchedule').onclick = () => openInternalSchedule();
+  // Mac/Safari compatibility: the date field is only a temporary picker.
+  // Actual selected dates are kept in internalScheduleDates, so native form
+  // validation must not block the Save submit event when the date picker is
+  // in a transient/partial editing state.
+  if ($('internalScheduleForm')) $('internalScheduleForm').noValidate = true;
   $('resetInternalSchedule').onclick = resetInternalScheduleForm;
   $('internalScheduleType').onchange = updateInternalScheduleTypeUi;
   $('addInternalScheduleDate').onclick = () => {
