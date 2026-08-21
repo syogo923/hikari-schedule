@@ -6,7 +6,8 @@ const SOURCES = {
   projectState: { store: 'hikari-portal', key: 'projects-state-v1' },
   masters: { store: 'hikari-portal', key: 'masters-v2' },
   schedules: { store: 'hikari-schedule', key: 'events-v1' },
-  deadlines: { store: 'hikari-portal', key: 'deadlines-v1' }
+  deadlines: { store: 'hikari-portal', key: 'deadlines-v1' },
+  materials: { store: 'hikari-portal', key: 'materials-v1' }
 };
 
 const reply = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -37,7 +38,7 @@ async function writeSelected(data, names) {
 export default async (request) => {
   try {
     if (request.method === 'GET') {
-      return reply({ format: 'hikari-portal-backup', formatVersion: 1, portalVersion: '4.0', createdAt: new Date().toISOString(), data: await readAll() });
+      return reply({ format: 'hikari-portal-backup', formatVersion: 1, portalVersion: '4.0.4', createdAt: new Date().toISOString(), data: await readAll() });
     }
     if (request.method === 'POST') {
       const body = await request.json();
@@ -45,7 +46,8 @@ export default async (request) => {
       const backup = body?.backup;
       if (!backup || backup.format !== 'hikari-portal-backup' || !backup.data || typeof backup.data !== 'object') return reply({ error: '光ポータルのバックアップファイルではありません。' }, 400);
       if (action === 'restore') {
-        const missing = Object.keys(SOURCES).filter(name => !Object.prototype.hasOwnProperty.call(backup.data, name));
+        const requiredSources = Object.keys(SOURCES).filter(name => name !== 'materials');
+        const missing = requiredSources.filter(name => !Object.prototype.hasOwnProperty.call(backup.data, name));
         if (missing.length) return reply({ error: '完全バックアップではないため復元できません。' }, 400);
         await writeSelected(backup.data, Object.keys(SOURCES));
         return reply({ ok: true, restoredAt: new Date().toISOString() });
