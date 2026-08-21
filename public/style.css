@@ -3942,3 +3942,7 @@ input[aria-busy="true"] {
 .release-history-panel{margin-top:18px;padding:20px;border:1px solid #dbe5ee;border-radius:15px;background:#fff}.release-history-head h3{margin:3px 0 14px;font-size:22px}.release-entry{display:grid;gap:5px;padding:14px 0;border-top:1px solid #e8eef4}.release-entry:first-of-type{border-top:0}.release-entry>div{display:flex;align-items:center;gap:10px}.release-entry strong{color:#0d1b3d}.release-entry span{padding:3px 8px;border-radius:999px;background:#eef5fb;color:#456987;font-size:12px;font-weight:800}.release-entry p{margin:0;color:#64748b;line-height:1.6}
 .backup-note{margin-top:18px;padding:16px 18px;border-left:4px solid #5a91bd;border-radius:10px;background:#f5f9fd;color:#39546d}.backup-note p{margin:6px 0 0;line-height:1.7}
 @media(max-width:760px){.system-admin-shell{padding:20px 12px 36px}.system-admin-head,.backup-status-card{align-items:stretch;flex-direction:column}.system-admin-grid{grid-template-columns:1fr}.system-tool-card p{min-height:0}}
+
+
+/* Ver4.0.4 unified version label */
+.portal-version-inline{margin-left:6px;color:#6f8195;font-size:11px;font-weight:800;white-space:nowrap}

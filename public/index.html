@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver3.5 Network Edition</title>
+  <title>光ポータル Ver4.0.4 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=3.7.2-duty-cat-fit">
+  <link rel="stylesheet" href="/style.css?v=4.0.4-materials-shared">
 </head>
 
 <body>
@@ -136,7 +136,7 @@
 
       <div>
         <h1>光ポータル</h1>
-        <p>仕事の見える化・納期共有</p>
+        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.4</span></p>
       </div>
     </div>
 
@@ -605,7 +605,7 @@
             <label>価格改定理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー値上げ、仕入先変更、特価終了"></textarea></label>
             <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
           </form>
-          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">この端末に保存されます。</p></div></div><p class="material-share-note">材料名・寸法・価格改定日・仕入先・改定理由・価格履歴は全PCで共有されます。</p>
+          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">全PCで共有されます。</p></div></div><p class="material-share-note">材料名・寸法・価格改定日・仕入先・改定理由・価格履歴は全PCで共有されます。</p>
           <div id="materialMasterList" class="material-master-list"></div></section>
         </div>
       </section>
@@ -657,7 +657,7 @@
       <div class="system-admin-shell">
         <div class="system-admin-head">
           <div><span class="eyebrow">SYSTEM MANAGEMENT</span><h2>システム管理</h2><p>光ポータルの共有データとリリース情報を管理します。</p></div>
-          <span class="system-version">Ver4.0</span>
+          <span class="system-version" data-portal-version>Ver4.0.4</span>
         </div>
         <div class="backup-status-card">
           <div><span class="backup-status-label">最終バックアップ</span><strong id="backupLastAt">このPCではまだありません</strong><small id="backupLastName">バックアップはこのPCへ保存されます</small></div>
@@ -665,12 +665,14 @@
         </div>
         <div class="system-admin-grid">
           <article class="system-tool-card"><span class="system-tool-icon">📥</span><h3>復元</h3><p>完全バックアップから会社全体の共有データをその時点へ戻します。</p><button id="restoreBackup" type="button" class="secondary">バックアップから復元</button></article>
-          <article class="system-tool-card"><span class="system-tool-icon">📤</span><h3>エクスポート</h3><p>必要な共有データだけを、このPCへ書き出します。</p><select id="exportBackupScope" aria-label="エクスポート対象"><option value="all">すべての共有データ</option><option value="projects">案件・進捗データ</option><option value="masters">マスタデータ</option><option value="schedules">社内予定</option><option value="deadlines">納期データ</option></select><button id="exportBackup" type="button" class="secondary">エクスポート</button></article>
+          <article class="system-tool-card"><span class="system-tool-icon">📤</span><h3>エクスポート</h3><p>必要な共有データだけを、このPCへ書き出します。</p><select id="exportBackupScope" aria-label="エクスポート対象"><option value="all">すべての共有データ</option><option value="projects">案件・進捗データ</option><option value="masters">マスタデータ</option><option value="schedules">社内予定</option><option value="deadlines">納期データ</option>
+              <option value="materials">材料マスタ・価格履歴</option></select><button id="exportBackup" type="button" class="secondary">エクスポート</button></article>
           <article class="system-tool-card"><span class="system-tool-icon">📁</span><h3>インポート</h3><p>光ポータルから書き出した共有データを読み込みます。</p><button id="importBackup" type="button" class="secondary">ファイルを選択</button></article>
           <article class="system-tool-card release-card"><span class="system-tool-icon">📜</span><h3>リリース履歴</h3><p>光ポータル本体のバージョンアップ内容を確認します。案件の更新履歴とは別の記録です。</p><button id="toggleReleaseHistory" type="button" class="secondary" aria-expanded="false">リリース履歴を表示</button></article>
         </div>
         <div id="releaseHistoryPanel" class="release-history-panel" hidden>
           <div class="release-history-head"><div><span class="eyebrow">RELEASE NOTES</span><h3>リリース履歴</h3></div></div>
+          <div class="release-entry"><div><strong>Ver4.0.4</strong><span>共有・表示修正</span></div><p>材料マスタを専用共有APIへ移行し、全PC共有とバックアップ対象化。バージョン表示を統一。</p></div>
           <div class="release-entry"><div><strong>Ver4.0</strong><span>システム管理</span></div><p>バックアップセンター、復元、エクスポート、インポート、リリース履歴を追加。</p></div>
           <div class="release-entry"><div><strong>Ver3.7</strong><span>UI・キャラクター演出</span></div><p>当番ねこの掃除演出とキラキラ、るでぃくんのしっぽアニメーションを調整。</p></div>
           <div class="release-entry"><div><strong>Ver3.6</strong><span>当番管理</span></div><p>当番の日付指定・複数日付対応と社内リマインダーの分割表示を強化。</p></div>
@@ -1351,7 +1353,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.3-mac-win-schedule-fix"
+    src="/app.js?v=4.0.4-materials-shared"
     defer
   ></script>
 

@@ -15,11 +15,14 @@
 
 'use strict';
 
+const PORTAL_VERSION = '4.0.4';
+
 const API = {
   projects: '/api/projects',
   masters: '/api/masters',
   excel: '/api/excel-import',
-  backup: '/api/backup-center'
+  backup: '/api/backup-center',
+  materials: '/api/materials'
 };
 
 const STORAGE_ACTOR_ID = 'hikariPortal.actorEmployeeId';
@@ -2486,7 +2489,11 @@ function render() {
 
 async function load({ silent = false } = {}) {
   try {
-    const [projectData, masterData] = await Promise.all([api(API.projects), api(API.masters)]);
+    const [projectData, masterData, materialData] = await Promise.all([
+      api(API.projects),
+      api(API.masters),
+      api(API.materials).catch(() => ({ initialized: false, materials: [] }))
+    ]);
 
     // 共有レコード作成時に社員マスタを参照できるよう、最初にマスタを確定する。
     S.masters = masterData.masters || S.masters;
@@ -2514,10 +2521,36 @@ async function load({ silent = false } = {}) {
       applySharedPortalState(sharedPortalProject);
     }
 
-    // 材料マスタと価格履歴は専用共有レコードから読み込む。
-    // 共有レコードがまだない場合だけ、このPCの旧ローカル材料を維持する。
-    if (materialSharedProject) {
-      applyMaterialSharedState(materialSharedProject);
+    // 材料マスタは専用API（Netlify Blobs）を正本として全PC共有する。
+    // 初回のみ旧SYS.PORTAL.MATERIALまたは旧ローカルデータから自動移行する。
+    if (materialData?.initialized) {
+      S.materials = Array.isArray(materialData.materials)
+        ? materialData.materials.map(normalizeMaterial)
+        : [];
+      localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+      renderMaterialMaster();
+    } else {
+      let migrationMaterials = [];
+      if (materialSharedProject) {
+        const legacy = normalizeMaterialSharedState(
+          parseMaterialSharedState(materialSharedProject) || {}
+        );
+        migrationMaterials = legacy.materials;
+      } else if (Array.isArray(S.materials)) {
+        migrationMaterials = S.materials.map(normalizeMaterial);
+      }
+
+      if (migrationMaterials.length) {
+        const migrated = await api(API.materials, {
+          method: 'PUT',
+          body: { materials: migrationMaterials }
+        });
+        S.materials = Array.isArray(migrated.materials)
+          ? migrated.materials.map(normalizeMaterial)
+          : migrationMaterials;
+        localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+        renderMaterialMaster();
+      }
     }
 
     // RC5では進捗・ステータスを各案件本体から読み込む。
@@ -4049,9 +4082,22 @@ function loadMaterials() {
 
 
 async function saveMaterials() {
+  const materials = S.materials.map(normalizeMaterial);
+  // ローカルはオフライン時の表示用キャッシュ。正本は共有API。
+  localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(materials));
+  renderMaterialMaster();
+
+  const result = await api(API.materials, {
+    method: 'PUT',
+    body: { materials }
+  });
+
+  S.materials = Array.isArray(result.materials)
+    ? result.materials.map(normalizeMaterial)
+    : materials;
   localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
   renderMaterialMaster();
-  await persistMaterialSharedState(S.materials);
+  return true;
 }
 
 function toMm(value, unit) {
@@ -4215,7 +4261,16 @@ function bindCalculatorEvents() {
   if (!$('materialMasterEffectiveDate').value) $('materialMasterEffectiveDate').value = todayIsoDate();
 }
 
+
+function applyPortalVersion() {
+  document.title = `光ポータル Ver${PORTAL_VERSION} Network Edition`;
+  document.querySelectorAll('[data-portal-version]').forEach(node => {
+    node.textContent = `Ver${PORTAL_VERSION}`;
+  });
+}
+
 async function init() {
+  applyPortalVersion();
   ensureActorUi();
   loadMaterials();
   loadAssigneeProgress();
@@ -4243,13 +4298,13 @@ function downloadJson(data, filename) { const blob=new Blob([JSON.stringify(data
 function renderBackupStatus(){ const at=localStorage.getItem(BACKUP_LAST_AT_KEY), name=localStorage.getItem(BACKUP_LAST_NAME_KEY); if($('backupLastAt')) $('backupLastAt').textContent=at?new Date(at).toLocaleString('ja-JP'):'このPCではまだありません'; if($('backupLastName')) $('backupLastName').textContent=name||'バックアップはこのPCへ保存されます'; }
 async function getBackupBundle(){ return await api(API.backup); }
 async function readBackupFile(file){ if(!file) throw new Error('ファイルを選択してください。'); let parsed; try{parsed=JSON.parse(await file.text());}catch{throw new Error('バックアップファイルを読み取れませんでした。');} if(!parsed||parsed.format!=='hikari-portal-backup'||!parsed.data) throw new Error('光ポータルのバックアップファイルではありません。'); return parsed; }
-function exportScopedBundle(bundle,scope){ if(scope==='all') return bundle; const keys={projects:['projects','projectHistory','projectState'],masters:['masters'],schedules:['schedules'],deadlines:['deadlines']}[scope]||[]; return {...bundle,exportScope:scope,data:Object.fromEntries(keys.filter(k=>Object.prototype.hasOwnProperty.call(bundle.data,k)).map(k=>[k,bundle.data[k]]))}; }
+function exportScopedBundle(bundle,scope){ if(scope==='all') return bundle; const keys={projects:['projects','projectHistory','projectState'],masters:['masters'],schedules:['schedules'],deadlines:['deadlines'],materials:['materials']}[scope]||[]; return {...bundle,exportScope:scope,data:Object.fromEntries(keys.filter(k=>Object.prototype.hasOwnProperty.call(bundle.data,k)).map(k=>[k,bundle.data[k]]))}; }
 function bindBackupCenterEvents(){
   renderBackupStatus();
   if($('backupNow')) $('backupNow').onclick=async()=>{ const b=$('backupNow'), original=b.textContent; try{b.disabled=true;b.textContent='バックアップ作成中…';const bundle=await getBackupBundle();const name=`光ポータル_完全バックアップ_${backupStamp()}.json`;downloadJson(bundle,name);localStorage.setItem(BACKUP_LAST_AT_KEY,bundle.createdAt||new Date().toISOString());localStorage.setItem(BACKUP_LAST_NAME_KEY,name);renderBackupStatus();toast('共有データ全体をバックアップしました');}catch(e){toast(e.message);}finally{b.disabled=false;b.textContent=original;} };
   if($('restoreBackup')) $('restoreBackup').onclick=()=>$('restoreBackupFile').click();
   if($('restoreBackupFile')) $('restoreBackupFile').onchange=async e=>{try{const backup=await readBackupFile(e.target.files[0]);if(!confirm('共有データ全体をこのバックアップの状態へ復元します。\n現在のデータは上書きされます。続けますか？'))return;await api(API.backup,{method:'POST',body:{action:'restore',backup}});toast('復元しました。最新データを読み込みます');await load();}catch(err){toast(err.message);}finally{e.target.value='';}};
-  if($('exportBackup')) $('exportBackup').onclick=async()=>{try{const scope=$('exportBackupScope').value,bundle=exportScopedBundle(await getBackupBundle(),scope);const label={all:'全データ',projects:'案件',masters:'マスタ',schedules:'社内予定',deadlines:'納期'}[scope]||'データ';downloadJson(bundle,`光ポータル_${label}_エクスポート_${backupStamp()}.json`);toast(`${label}をエクスポートしました`);}catch(e){toast(e.message);}};
+  if($('exportBackup')) $('exportBackup').onclick=async()=>{try{const scope=$('exportBackupScope').value,bundle=exportScopedBundle(await getBackupBundle(),scope);const label={all:'全データ',projects:'案件',masters:'マスタ',schedules:'社内予定',deadlines:'納期',materials:'材料マスタ'}[scope]||'データ';downloadJson(bundle,`光ポータル_${label}_エクスポート_${backupStamp()}.json`);toast(`${label}をエクスポートしました`);}catch(e){toast(e.message);}};
   if($('importBackup')) $('importBackup').onclick=()=>$('importBackupFile').click();
   if($('importBackupFile')) $('importBackupFile').onchange=async e=>{try{const backup=await readBackupFile(e.target.files[0]);if(!confirm('選択したデータを光ポータルへインポートします。該当する共有データは上書きされます。続けますか？'))return;await api(API.backup,{method:'POST',body:{action:'import',backup}});toast('インポートしました');await load();}catch(err){toast(err.message);}finally{e.target.value='';}};
   if($('toggleReleaseHistory')) $('toggleReleaseHistory').onclick=()=>{const panel=$('releaseHistoryPanel'),btn=$('toggleReleaseHistory');const open=panel.hidden;panel.hidden=!open;btn.setAttribute('aria-expanded',String(open));btn.textContent=open?'リリース履歴を閉じる':'リリース履歴を表示';};
