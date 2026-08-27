@@ -15,7 +15,7 @@
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=history-audit-v1">
+  <link rel="stylesheet" href="/style.css?v=4.0.5-calendar-usability">
 </head>
 
 <body>
@@ -456,7 +456,7 @@
         <div>
           <h2>更新履歴</h2>
           <p class="muted">
-            誰が・いつ・何を変更したかを、変更前後の内容まで確認できます。
+            案件の追加・編集・完了・削除の履歴を確認できます。
           </p>
         </div>
 
@@ -492,21 +492,11 @@
         </label>
 
         <label>
-          期間
-          <select id="historyDateFilter">
-            <option value="">すべて</option>
-            <option value="today">今日</option>
-            <option value="week">過去7日</option>
-            <option value="month">過去30日</option>
-          </select>
-        </label>
-
-        <label>
           履歴を検索
           <input
             id="historySearch"
             type="search"
-            placeholder="案件番号・表示名・変更内容を検索"
+            placeholder="番船・表示名を検索"
             autocomplete="off"
           >
         </label>
@@ -1199,9 +1189,24 @@
           <label>時刻<input id="internalScheduleTime" type="time"></label>
         </div>
         <label>補足<input id="internalScheduleNote" maxlength="120" placeholder="任意"></label>
-        <footer><button type="button" id="resetInternalSchedule" class="secondary">新規入力</button><button type="submit" class="primary" formnovalidate>保存</button></footer>
+        <footer><button type="button" id="deleteEditingInternalSchedule" class="danger" data-delete-internal="" hidden>この予定を削除</button><span class="internal-schedule-footer-spacer"></span><button type="button" id="resetInternalSchedule" class="secondary">新規入力</button><button type="submit" class="primary" formnovalidate>保存</button></footer>
       </form>
       <section><h3>登録済みの社内予定</h3><div id="internalScheduleList"></div></section>
+    </div>
+  </dialog>
+
+  <!-- 月間カレンダー：その日の全予定 -->
+  <dialog id="calendarDayDetailDialog" class="calendar-day-detail-dialog">
+    <div class="calendar-day-detail-panel">
+      <header>
+        <div>
+          <p class="dialog-eyebrow">DAILY SCHEDULE</p>
+          <h2 id="calendarDayDetailTitle">この日の予定</h2>
+        </div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+      <div id="calendarDayDetailList" class="calendar-day-detail-list"></div>
+      <footer><button type="button" class="secondary" data-close>閉じる</button></footer>
     </div>
   </dialog>
 
@@ -1363,7 +1368,7 @@
   ></div>
 
   <script
-    src="/app.js?v=history-audit-v1"
+    src="/app.js?v=4.0.5-calendar-usability"
     defer
   ></script>
 

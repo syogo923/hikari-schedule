@@ -1309,6 +1309,10 @@ function resetInternalScheduleForm() {
   $('internalScheduleDay').value = '1';
   $('internalScheduleDate').value = '';
   setInternalScheduleDates([]);
+  if ($('deleteEditingInternalSchedule')) {
+    $('deleteEditingInternalSchedule').hidden = true;
+    $('deleteEditingInternalSchedule').dataset.deleteInternal = '';
+  }
   updateInternalScheduleTypeUi();
 }
 
@@ -1331,6 +1335,10 @@ function openInternalSchedule(id = '') {
     setInternalScheduleDates(item.dates);
     $('internalScheduleTime').value = item.time || '';
     $('internalScheduleNote').value = item.note || '';
+    if ($('deleteEditingInternalSchedule')) {
+      $('deleteEditingInternalSchedule').hidden = false;
+      $('deleteEditingInternalSchedule').dataset.deleteInternal = item.id;
+    }
     updateInternalScheduleTypeUi();
   }
   renderInternalScheduleList();
@@ -1387,6 +1395,139 @@ function fillEmployeeFilter(selectId, selectedId = '') {
 }
 
 
+
+function nthMonday(year, monthIndex, nth) {
+  const first = new Date(year, monthIndex, 1);
+  const offset = (8 - first.getDay()) % 7;
+  return 1 + offset + (nth - 1) * 7;
+}
+
+function vernalEquinoxDay(year) {
+  if (year < 1980 || year > 2099) return 20;
+  return Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+}
+
+function autumnEquinoxDay(year) {
+  if (year < 1980 || year > 2099) return 23;
+  return Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+}
+
+function japaneseHolidayMap(year) {
+  const map = new Map();
+  const add = (month, day, name) => map.set(fd(new Date(year, month - 1, day)), name);
+
+  add(1, 1, '元日');
+  add(1, nthMonday(year, 0, 2), '成人の日');
+  add(2, 11, '建国記念の日');
+  if (year >= 2020) add(2, 23, '天皇誕生日');
+  add(3, vernalEquinoxDay(year), '春分の日');
+  add(4, 29, '昭和の日');
+  add(5, 3, '憲法記念日');
+  add(5, 4, 'みどりの日');
+  add(5, 5, 'こどもの日');
+
+  if (year === 2020) {
+    add(7, 23, '海の日'); add(7, 24, 'スポーツの日'); add(8, 10, '山の日');
+  } else if (year === 2021) {
+    add(7, 22, '海の日'); add(7, 23, 'スポーツの日'); add(8, 8, '山の日');
+  } else {
+    add(7, nthMonday(year, 6, 3), '海の日');
+    add(8, 11, '山の日');
+    add(10, nthMonday(year, 9, 2), 'スポーツの日');
+  }
+
+  add(9, nthMonday(year, 8, 3), '敬老の日');
+  add(9, autumnEquinoxDay(year), '秋分の日');
+  add(11, 3, '文化の日');
+  add(11, 23, '勤労感謝の日');
+
+  if (year <= 2018) add(12, 23, '天皇誕生日');
+
+  // 国民の休日：祝日に挟まれた平日。
+  for (let month = 0; month < 12; month += 1) {
+    const days = new Date(year, month + 1, 0).getDate();
+    for (let day = 2; day < days; day += 1) {
+      const current = fd(new Date(year, month, day));
+      if (map.has(current)) continue;
+      const prev = fd(new Date(year, month, day - 1));
+      const next = fd(new Date(year, month, day + 1));
+      if (map.has(prev) && map.has(next)) map.set(current, '国民の休日');
+    }
+  }
+
+  // 振替休日：日曜の祝日の次の非祝日。
+  [...map.entries()].forEach(([date]) => {
+    const d = new Date(`${date}T00:00:00`);
+    if (d.getDay() !== 0) return;
+    let cursor = new Date(d);
+    do {
+      cursor.setDate(cursor.getDate() + 1);
+    } while (map.has(fd(cursor)));
+    map.set(fd(cursor), '振替休日');
+  });
+
+  return map;
+}
+
+const HOLIDAY_CACHE = new Map();
+function japaneseHolidayName(date) {
+  const d = typeof date === 'string' ? new Date(`${date}T00:00:00`) : date;
+  const year = d.getFullYear();
+  if (!HOLIDAY_CACHE.has(year)) HOLIDAY_CACHE.set(year, japaneseHolidayMap(year));
+  return HOLIDAY_CACHE.get(year).get(fd(d)) || '';
+}
+
+function calendarDayClass(dateObject) {
+  const date = fd(dateObject);
+  const holiday = japaneseHolidayName(date);
+  const day = dateObject.getDay();
+  return [
+    day === 6 ? 'is-saturday' : '',
+    day === 0 ? 'is-sunday' : '',
+    holiday ? 'is-holiday' : ''
+  ].filter(Boolean).join(' ');
+}
+
+function filteredCalendarGroups() {
+  const q = safeTrim(S.calendarQ).toLowerCase();
+  return groupProjects(S.projects).filter(group => {
+    const project = group.representative;
+    const text = [project.shipNo, project.displayName, project.client, groupEmployeeNames(group)].join(' ').toLowerCase();
+    return (!q || text.includes(q)) &&
+      (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId)) &&
+      groupMatchesStatusFilter(group, S.calendarStatusFilter);
+  });
+}
+
+function calendarItemsForDate(date, groups = filteredCalendarGroups()) {
+  const q = safeTrim(S.calendarQ).toLowerCase();
+  const internalItems = internalSchedulesForDate(date).filter(item => {
+    if (!q) return true;
+    return [item.title, item.note, item.time, internalScheduleTypeLabel(item)].join(' ').toLowerCase().includes(q);
+  });
+  const projectItems = groups.filter(group => group.dueDates.includes(date));
+  return {
+    internalItems,
+    projectItems,
+    html: [
+      ...internalItems.map(calendarInternalScheduleBadge),
+      ...projectItems.map(calendarProjectBadge)
+    ]
+  };
+}
+
+function openCalendarDayDetail(date) {
+  const dialog = $('calendarDayDetailDialog');
+  const list = $('calendarDayDetailList');
+  if (!dialog || !list) return;
+  const items = calendarItemsForDate(date);
+  $('calendarDayDetailTitle').textContent = `${jp(date)}の予定 ${items.html.length}件`;
+  list.innerHTML = items.html.length
+    ? items.html.join('')
+    : '<div class="notice">この日の予定はありません。</div>';
+  dialog.showModal();
+}
+
 function renderCalendar() {
   const host = $('monthlyCalendar');
   if (!host) return;
@@ -1399,19 +1540,7 @@ function renderCalendar() {
   if ($('calendarStatusFilter')) $('calendarStatusFilter').value = S.calendarStatusFilter;
 
   const q = safeTrim(S.calendarQ).toLowerCase();
-  const groups = groupProjects(S.projects).filter(group => {
-    const project = group.representative;
-    const text = [
-      project.shipNo,
-      project.displayName,
-      project.client,
-      groupEmployeeNames(group)
-    ].join(' ').toLowerCase();
-
-    return (!q || text.includes(q)) &&
-      (!S.calendarEmployeeId || group.employeeIds.includes(S.calendarEmployeeId)) &&
-      groupMatchesStatusFilter(group, S.calendarStatusFilter);
-  });
+  const groups = filteredCalendarGroups();
 
   if ($('calendarResultCount')) $('calendarResultCount').textContent = `${groups.length}案件`;
 
@@ -1443,26 +1572,17 @@ function renderCalendar() {
     }
 
     const date = fd(dateObject);
-    const items = byDate.get(date) || [];
-    const internalItems = internalSchedulesForDate(date).filter(item => {
-      if (!q) return true;
-      return [item.title, item.note, item.time, internalScheduleTypeLabel(item)]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
-    });
-
-    const calendarItems = [
-      ...internalItems.map(calendarInternalScheduleBadge),
-      ...items.map(calendarProjectBadge)
-    ];
+    const calendarData = calendarItemsForDate(date, groups);
+    const calendarItems = calendarData.html;
+    const holidayName = japaneseHolidayName(date);
+    const dayClass = calendarDayClass(dateObject);
 
     cells.push(
-      `<div class="calendar-day ${otherMonth ? 'other-month' : ''} ${date === fd(new Date()) ? 'today' : ''}">
-        <div class="calendar-day-number">${dateObject.getDate()}</div>
+      `<div class="calendar-day ${otherMonth ? 'other-month' : ''} ${date === fd(new Date()) ? 'today' : ''} ${dayClass}" data-calendar-date="${esc(date)}">
+        <div class="calendar-day-number"><span>${dateObject.getDate()}</span>${holidayName ? `<small class="holiday-label" title="${esc(holidayName)}">${esc(holidayName)}</small>` : ''}</div>
         <div class="calendar-day-projects">
           ${calendarItems.slice(0, 5).join('')}
-          ${calendarItems.length > 5 ? `<span class="calendar-more">ほか${calendarItems.length - 5}件</span>` : ''}
+          ${calendarItems.length > 5 ? `<button type="button" class="calendar-more" data-calendar-more="${esc(date)}">ほか${calendarItems.length - 5}件を見る</button>` : ''}
         </div>
       </div>`
     );
@@ -1470,7 +1590,7 @@ function renderCalendar() {
 
   host.innerHTML =
     '<div class="calendar-weekdays">' +
-    ['日', '月', '火', '水', '木', '金', '土'].map(day => `<div>${day}</div>`).join('') +
+    ['日', '月', '火', '水', '木', '金', '土'].map((day,index) => `<div class="${index===0?'is-sunday':index===6?'is-saturday':''}">${day}</div>`).join('') +
     '</div><div class="calendar-grid">' +
     cells.join('') +
     '</div>';
@@ -2251,9 +2371,8 @@ function fillSelects() {
   renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
   if ($('historyActorFilter')) {
     const current = $('historyActorFilter').value;
-    $('historyActorFilter').innerHTML = '<option value="">すべて</option>' +
-      ordered('employees').map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('');
-    $('historyActorFilter').value = [...$('historyActorFilter').options].some(option => option.value === current) ? current : '';
+    $('historyActorFilter').innerHTML = '<option value="">すべて</option>' + ordered('employees').map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    $('historyActorFilter').value = current;
   }
   if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
   if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
@@ -2337,8 +2456,11 @@ function renderSchedule() {
   const groups = groupProjects(filtered());
   let html = '<thead><tr><th class="date-col">日付</th><th class="date-memo-col" aria-label="日付メモ"></th><th class="internal-col">社内スケジュール</th>' + employees.map(item => `<th style="${employeeColorStyle(item.id)}">${esc(item.name)}</th>`).join('') + '</tr></thead><tbody>';
   for (let day = 1; day <= days; day++) {
-    const date = fd(new Date(year, month, day));
-    html += `<tr data-schedule-date="${esc(date)}"><th>${esc(jp(date))}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td><td class="internal-schedule-cell">${internalScheduleHtml(date)}</td>` + employees.map(item => {
+    const dateObject = new Date(year, month, day);
+    const date = fd(dateObject);
+    const holidayName = japaneseHolidayName(date);
+    const dayClass = calendarDayClass(dateObject);
+    html += `<tr data-schedule-date="${esc(date)}" class="${dayClass}"><th>${esc(jp(date))}${holidayName ? `<small class="schedule-holiday-label">${esc(holidayName)}</small>` : ''}</th><td class="date-memo-cell">${stickyNoteCellHtml(date)}</td><td class="internal-schedule-cell">${internalScheduleHtml(date)}</td>` + employees.map(item => {
       const cards = groups.filter(group => group.dueDates[0] === date && group.employeeIds.includes(item.id)).map(group => groupCard(group, item.id)).join('');
       return `<td>${cards}</td>`;
     }).join('') + `</tr>`;
@@ -2834,169 +2956,33 @@ function historyActorId(item) {
 }
 
 function historyActorName(item) {
-  return safeTrim(item.actorName || '') || employeeName(historyActorId(item)) || '光ポータル';
+  return item.actorName || employeeName(historyActorId(item));
 }
 
 function historyProject(item) {
   return item.project || item.after || item.before || item.data || {};
 }
 
-const historyLabels = {
-  create: '案件追加',
-  add: '案件追加',
-  update: '案件編集',
-  edit: '案件編集',
-  complete: '完了',
-  reopen: '完了解除',
-  toggle: '完了状態変更',
-  delete: '案件削除'
-};
-
-function historyEmployeeNamesFromIds(value) {
-  const ids = Array.isArray(value) ? value : value ? [value] : [];
-  if (!ids.length) return '—';
-  return ids.map(id => employeeName(id)).join('・');
-}
-
-function historyProgressText(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return '—';
-  const entries = Object.entries(value);
-  if (!entries.length) return '未完了';
-  const complete = entries.filter(([,state]) => Boolean(state?.completed ?? state === true)).length;
-  return `${complete}/${entries.length}名完了`;
-}
-
-function historyLifecycleText(value) {
-  const status = value?.status || value;
-  if (status === 'delivered') return '納品完了';
-  if (status === 'production_complete') return '製作完了';
-  if (status === 'in_progress') return '製作中';
-  return status ? String(status) : '—';
-}
-
-function historyValueText(field, value) {
-  if (value === null || value === undefined || value === '') return '—';
-  if (field === 'employeeIds' || field === 'employeeId') return historyEmployeeNamesFromIds(value);
-  if (field === 'dueDate') return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? jp(String(value)) : String(value);
-  if (field === 'completed') return value ? '完了' : '未完了';
-  if (field === 'assigneeProgress') return historyProgressText(value);
-  if (field === 'lifecycle') return historyLifecycleText(value);
-  if (field === 'portalState') {
-    const progress = historyProgressText(value?.assigneeProgress);
-    const lifecycle = historyLifecycleText(value?.lifecycle);
-    return `${lifecycle}・${progress}`;
-  }
-  if (Array.isArray(value)) return value.map(v => String(v)).join('・') || '—';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
-function normalizedHistoryChanges(item) {
-  const changes = Array.isArray(item.changes) ? item.changes : [];
-  // portalState は担当者進捗・案件ステータスと内容が重複するため、
-  // 個別変更が記録されている場合は一覧・詳細から除外する。
-  const hasProgress = changes.some(change => change.field === 'assigneeProgress');
-  const hasLifecycle = changes.some(change => change.field === 'lifecycle');
-  return changes.filter(change => change.field !== 'portalState' || (!hasProgress && !hasLifecycle));
-}
-
-function historyChangeSummary(item, maxItems = 3) {
-  const changes = normalizedHistoryChanges(item);
-  if (!changes.length) {
-    const action = historyAction(item);
-    if (action === 'create' || action === 'add') return '案件を登録しました';
-    if (action === 'delete') return '案件を削除しました';
-    return safeTrim(item.summary || '') || '変更内容の詳細記録はありません';
-  }
-  const rows = changes.slice(0, maxItems).map(change => {
-    const before = historyValueText(change.field, change.before);
-    const after = historyValueText(change.field, change.after);
-    return `${change.label || change.field}：${before} → ${after}`;
-  });
-  if (changes.length > maxItems) rows.push(`ほか${changes.length - maxItems}項目`);
-  return rows.join(' ／ ');
-}
-
-function historyDateMatches(item, filter) {
-  if (!filter) return true;
-  const raw = item.createdAt || item.updatedAt || item.timestamp;
-  const date = raw ? new Date(raw) : null;
-  if (!date || Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  if (filter === 'today') {
-    return date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth() &&
-      date.getDate() === now.getDate();
-  }
-  const days = filter === 'week' ? 7 : filter === 'month' ? 30 : 0;
-  if (!days) return true;
-  return now.getTime() - date.getTime() <= days * 86400000;
-}
-
-function fillHistoryActorFilter() {
-  const select = $('historyActorFilter');
-  if (!select) return;
-  const current = select.value;
-  const names = [...new Set(
-    S.history.map(historyActorName).map(safeTrim).filter(Boolean)
-  )].sort((a,b) => a.localeCompare(b, 'ja'));
-  select.innerHTML = '<option value="">すべて</option>' +
-    names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
-  select.value = names.includes(current) ? current : '';
-}
+const historyLabels = { create: '案件追加', add: '案件追加', update: '案件編集', edit: '案件編集', complete: '完了', reopen: '完了解除', toggle: '完了状態変更', delete: '案件削除' };
 
 function renderHistory() {
   if (!$('historyList')) return;
   const actionFilter = $('historyActionFilter')?.value || '';
   const actorFilter = $('historyActorFilter')?.value || '';
-  const dateFilter = $('historyDateFilter')?.value || '';
   const query = ($('historySearch')?.value || '').trim().toLowerCase();
-
   const list = S.history.filter(item => {
     const action = historyAction(item);
     const project = historyProject(item);
     if (isSharedPortalProject(project)) return false;
-    const changesText = normalizedHistoryChanges(item)
-      .flatMap(change => [
-        change.label,
-        historyValueText(change.field, change.before),
-        historyValueText(change.field, change.after)
-      ])
-      .join(' ');
-    const text = [
-      project.shipNo,
-      project.displayName,
-      project.productName,
-      project.client,
-      item.summary,
-      historyActorName(item),
-      changesText
-    ].join(' ').toLowerCase();
-
-    return (!actionFilter || action === actionFilter) &&
-      (!actorFilter || historyActorName(item) === actorFilter) &&
-      historyDateMatches(item, dateFilter) &&
-      (!query || text.includes(query));
+    const text = [project.shipNo, project.displayName, item.summary, historyActorName(item)].join(' ').toLowerCase();
+    return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
   });
-
-  if ($('historyResultCount')) $('historyResultCount').textContent = `${list.length}件`;
   if ($('historyEmpty')) $('historyEmpty').hidden = list.length !== 0;
-
-  $('historyList').innerHTML = list.map(item => {
+  $('historyList').innerHTML = list.map((item, index) => {
     const project = historyProject(item);
     const actorId = historyActorId(item);
     const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}">
-      <button type="button" data-history-id="${esc(item.id || '')}">
-        <div class="history-meta">
-          <time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time>
-          <span class="history-actor">${esc(historyActorName(item))}</span>
-          <strong>${esc(historyLabels[action] || action || '更新')}</strong>
-        </div>
-        <h3>${esc(project.shipNo || item.shipNo || '—')} ${esc(project.displayName || item.displayName || '')}</h3>
-        <p class="history-change-summary">${esc(historyChangeSummary(item))}</p>
-      </button>
-    </article>`;
+    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(item.summary || project.notes || '')}</p></button></article>`;
   }).join('');
 }
 
@@ -3005,10 +2991,9 @@ async function loadHistory() {
   $('historyLoading').hidden = false;
   $('historyError').textContent = '';
   try {
-    const data = await api(`${API.projects}?history=1&limit=500`);
+    const data = await api(`${API.projects}?history=1`);
     S.history = data.history || data.items || [];
     S.historyLoaded = true;
-    fillHistoryActorFilter();
     renderHistory();
   } catch (error) {
     $('historyError').textContent = error.message;
@@ -3017,75 +3002,16 @@ async function loadHistory() {
   }
 }
 
-function historySnapshotTable(data) {
-  if (!data) return '<p class="muted">記録なし</p>';
-  return `<dl>
-    <dt>案件番号</dt><dd>${esc(data.shipNo || '—')}</dd>
-    <dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd>
-    <dt>製品名</dt><dd>${esc(data.productName || '—')}</dd>
-    <dt>得意先</dt><dd>${esc(data.client || '—')}</dd>
-    <dt>担当者</dt><dd>${esc(historyEmployeeNamesFromIds(data.employeeIds || data.employeeId))}</dd>
-    <dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd>
-    <dt>数量</dt><dd>${esc(data.quantity ?? '—')}</dd>
-    <dt>仕様・備考</dt><dd>${esc(data.spec || '—')}</dd>
-    <dt>メモ</dt><dd>${esc(data.notes || '—')}</dd>
-    <dt>担当者進捗</dt><dd>${esc(historyProgressText(data.assigneeProgress))}</dd>
-    <dt>案件ステータス</dt><dd>${esc(historyLifecycleText(data.lifecycle))}</dd>
-  </dl>`;
-}
-
-function historyChangesHtml(item) {
-  const changes = normalizedHistoryChanges(item);
-  if (!changes.length) {
-    return `<div class="history-no-changes">${esc(historyChangeSummary(item))}</div>`;
-  }
-  return `<div class="history-change-list">${changes.map(change => `
-    <article class="history-change-row">
-      <strong>${esc(change.label || change.field)}</strong>
-      <div><span class="history-before">${esc(historyValueText(change.field, change.before))}</span><i aria-hidden="true">→</i><span class="history-after">${esc(historyValueText(change.field, change.after))}</span></div>
-    </article>
-  `).join('')}</div>`;
-}
-
-function openHistoryDetailById(id) {
-  const item = S.history.find(entry => String(entry.id || '') === String(id || ''));
-  if (!item) return toast('更新履歴が見つかりません。');
+function openHistoryDetail(index) {
+  const item = S.history[index];
+  if (!item) return;
   const before = item.before || null;
   const after = item.after || item.project || null;
-  const project = historyProject(item);
-  $('historyDetailBody').innerHTML = `
-    <header>
-      <div>
-        <p class="dialog-eyebrow">CHANGE AUDIT LOG</p>
-        <h2>${esc(project.shipNo || item.shipNo || '—')} ${esc(project.displayName || item.displayName || '')}</h2>
-      </div>
-      <button type="button" data-close>×</button>
-    </header>
-    <div class="history-detail-meta">
-      <strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>
-      <span>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</span>
-      <span>操作者：${esc(historyActorName(item))}</span>
-    </div>
-    <section class="history-change-section">
-      <h3>変更された項目</h3>
-      ${historyChangesHtml(item)}
-    </section>
-    <details class="history-snapshot-details">
-      <summary>変更前・変更後の全データを確認</summary>
-      <div class="history-compare">
-        <section><h3>変更前</h3>${historySnapshotTable(before)}</section>
-        <section><h3>変更後</h3>${historySnapshotTable(after)}</section>
-      </div>
-    </details>
-    <footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
+  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
+  $('historyDetailBody').innerHTML = `<header><h2>更新履歴の詳細</h2><button type="button" data-close>×</button></header><p><strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>　${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</p><p>操作者：${esc(historyActorName(item))}</p><div class="history-compare"><section><h3>変更前</h3>${table(before)}</section><section><h3>変更後</h3>${table(after)}</section></div><footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
   $('historyDetailDialog').showModal();
 }
 
-// 後方互換：旧コードからindex指定されても正しい履歴を開ける。
-function openHistoryDetail(index) {
-  const item = S.history[index];
-  if (item) openHistoryDetailById(item.id);
-}
 
 
 function formatSyncDateTime(value) {
@@ -3569,7 +3495,6 @@ function bindFixedEvents() {
   $('refreshHistory').onclick = loadHistory;
   $('historyActionFilter').onchange = renderHistory;
   $('historyActorFilter').onchange = renderHistory;
-  if ($('historyDateFilter')) $('historyDateFilter').onchange = renderHistory;
   $('historySearch').oninput = renderHistory;
   $('applyUpdate').onclick = async () => {
     hideRemoteUpdateNotice();
@@ -3938,6 +3863,7 @@ function bindDelegatedEvents() {
       }
       else if (button.id === 'addProject' || button.dataset.add !== undefined) openProject();
       else if (button.dataset.stickyDate) openStickyNote(button.dataset.stickyDate);
+      else if (button.dataset.calendarMore) openCalendarDayDetail(button.dataset.calendarMore);
       else if (button.dataset.openInternalSchedule !== undefined) openInternalSchedule(button.dataset.internalId || '');
       else if (button.dataset.editInternal) openInternalSchedule(button.dataset.editInternal);
       else if (button.dataset.deleteInternal) {
@@ -3953,6 +3879,10 @@ function bindDelegatedEvents() {
             renderSchedule();
             renderCalendar();
             renderInternalScheduleList();
+            if (button.id === 'deleteEditingInternalSchedule') {
+              $('internalScheduleDialog')?.close();
+              resetInternalScheduleForm();
+            }
             toast('社内予定を削除しました');
           } catch (error) {
             S.internalSchedules = previousSchedules;
@@ -4047,7 +3977,6 @@ function bindDelegatedEvents() {
           }
         }
       }
-      else if (button.dataset.historyId !== undefined) openHistoryDetailById(button.dataset.historyId);
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
       else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
