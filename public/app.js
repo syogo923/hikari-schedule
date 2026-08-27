@@ -15,7 +15,7 @@
 
 'use strict';
 
-const PORTAL_VERSION = '4.0.4';
+const PORTAL_VERSION = '4.0.7';
 
 const API = {
   projects: '/api/projects',
@@ -2990,10 +2990,19 @@ function historyProgressText(value) {
 }
 
 function historyLifecycleText(value) {
-  const status = value?.status || value;
+  let status = value;
+
+  // Older records can contain nested lifecycle objects.
+  // Resolve them safely instead of rendering "[object Object]".
+  for (let depth = 0; depth < 4 && status && typeof status === 'object'; depth += 1) {
+    status = status.status ?? status.lifecycle ?? status.value ?? '';
+  }
+
   if (status === 'delivered') return '納品完了';
   if (status === 'production_complete') return '製作完了';
   if (status === 'in_progress') return '製作中';
+  if (status === true) return '完了';
+  if (status === false) return '未完了';
   return status ? String(status) : '—';
 }
 
@@ -3009,8 +3018,19 @@ function historyValueText(field, value) {
     const lifecycle = historyLifecycleText(value?.lifecycle);
     return `${lifecycle}・${progress}`;
   }
-  if (Array.isArray(value)) return value.map(v => String(v)).join('・') || '—';
-  if (typeof value === 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return value.map(v => {
+    if (v && typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }).join('・') || '—';
+  if (typeof value === 'object') {
+    // Avoid unreadable "[object Object]" in legacy history records.
+    if ('status' in value || 'lifecycle' in value) return historyLifecycleText(value);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '詳細データ';
+    }
+  }
   return String(value);
 }
 
@@ -3068,6 +3088,32 @@ function fillHistoryActorFilter() {
   select.value = names.includes(current) ? current : '';
 }
 
+function historyCardChangesHtml(item, maxItems = 3) {
+  const changes = normalizedHistoryChanges(item);
+
+  if (!changes.length) {
+    return `<div class="history-card-empty">${esc(historyChangeSummary(item))}</div>`;
+  }
+
+  const visible = changes.slice(0, maxItems);
+  const rows = visible.map(change => {
+    const before = historyValueText(change.field, change.before);
+    const after = historyValueText(change.field, change.after);
+    return `<div class="history-card-change">
+      <span class="history-card-label">${esc(change.label || change.field)}</span>
+      <span class="history-card-before">${esc(before)}</span>
+      <i aria-hidden="true">→</i>
+      <span class="history-card-after">${esc(after)}</span>
+    </div>`;
+  }).join('');
+
+  const more = changes.length > maxItems
+    ? `<div class="history-card-more">＋ ほか${changes.length - maxItems}項目</div>`
+    : '';
+
+  return rows + more;
+}
+
 function renderHistory() {
   if (!$('historyList')) return;
   const actionFilter = $('historyActionFilter')?.value || '';
@@ -3109,15 +3155,25 @@ function renderHistory() {
     const project = historyProject(item);
     const actorId = historyActorId(item);
     const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}">
+    const shipNo = project.shipNo || item.shipNo || '—';
+    const displayName = project.displayName || item.displayName || '';
+    return `<article class="history-item history-audit-card" style="${employeeColorStyle(actorId)}">
       <button type="button" data-history-id="${esc(item.id || '')}">
-        <div class="history-meta">
-          <time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time>
-          <span class="history-actor">${esc(historyActorName(item))}</span>
-          <strong>${esc(historyLabels[action] || action || '更新')}</strong>
+        <div class="history-card-top">
+          <div class="history-meta">
+            <time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time>
+            <span class="history-actor">${esc(historyActorName(item))}</span>
+          </div>
+          <strong class="history-action-badge">${esc(historyLabels[action] || action || '更新')}</strong>
         </div>
-        <h3>${esc(project.shipNo || item.shipNo || '—')} ${esc(project.displayName || item.displayName || '')}</h3>
-        <p class="history-change-summary">${esc(historyChangeSummary(item))}</p>
+        <div class="history-card-title">
+          <strong>${esc(shipNo)}</strong>
+          ${displayName ? `<span>${esc(displayName)}</span>` : ''}
+        </div>
+        <div class="history-card-changes">
+          ${historyCardChangesHtml(item)}
+        </div>
+        <span class="history-card-detail-link">詳細を見る</span>
       </button>
     </article>`;
   }).join('');
@@ -4590,9 +4646,17 @@ function bindCalculatorEvents() {
 
 
 function applyPortalVersion() {
-  document.title = `光ポータル Ver${PORTAL_VERSION} Network Edition`;
+  const shortVersion = `Ver${PORTAL_VERSION}`;
+  const fullTitle = `光ポータル ${shortVersion} Network Edition`;
+
+  document.title = fullTitle;
+
   document.querySelectorAll('[data-portal-version]').forEach(node => {
-    node.textContent = `Ver${PORTAL_VERSION}`;
+    node.textContent = shortVersion;
+  });
+
+  document.querySelectorAll('[data-portal-full-version]').forEach(node => {
+    node.textContent = fullTitle;
   });
 }
 
