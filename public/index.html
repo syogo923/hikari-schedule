@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver4.0.4 Network Edition</title>
+  <title>光ポータル Ver4.0.6 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=4.0.5-calendar-usability">
+  <link rel="stylesheet" href="/style.css?v=4.0.6-history-audit">
 </head>
 
 <body>
@@ -136,7 +136,7 @@
 
       <div>
         <h1>光ポータル</h1>
-        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.4</span></p>
+        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.6</span></p>
       </div>
     </div>
 
@@ -456,7 +456,7 @@
         <div>
           <h2>更新履歴</h2>
           <p class="muted">
-            案件の追加・編集・完了・削除の履歴を確認できます。
+            誰が・いつ・何を変更したかを、変更前後の内容まで確認できます。
           </p>
         </div>
 
@@ -492,15 +492,30 @@
         </label>
 
         <label>
+          期間
+          <select id="historyDateFilter">
+            <option value="">すべて</option>
+            <option value="today">今日</option>
+            <option value="week">過去7日</option>
+            <option value="month">過去30日</option>
+          </select>
+        </label>
+
+        <label>
           履歴を検索
           <input
             id="historySearch"
             type="search"
-            placeholder="番船・表示名を検索"
+            placeholder="案件番号・表示名・変更内容を検索"
             autocomplete="off"
           >
         </label>
 
+      </div>
+
+      <div class="history-result-line">
+        <strong id="historyResultCount">0件</strong>
+        <span>最大500件まで取得します</span>
       </div>
 
       <p
@@ -657,7 +672,7 @@
       <div class="system-admin-shell">
         <div class="system-admin-head">
           <div><span class="eyebrow">SYSTEM MANAGEMENT</span><h2>システム管理</h2><p>光ポータルの共有データとリリース情報を管理します。</p></div>
-          <span class="system-version" data-portal-version>Ver4.0.4</span>
+          <span class="system-version" data-portal-version>Ver4.0.6</span>
         </div>
         <div class="backup-status-card">
           <div><span class="backup-status-label">最終バックアップ</span><strong id="backupLastAt">このPCではまだありません</strong><small id="backupLastName">バックアップはこのPCへ保存されます</small></div>
@@ -672,6 +687,8 @@
         </div>
         <div id="releaseHistoryPanel" class="release-history-panel" hidden>
           <div class="release-history-head"><div><span class="eyebrow">RELEASE NOTES</span><h3>リリース履歴</h3></div></div>
+          <div class="release-entry"><div><strong>Ver4.0.6</strong><span>更新履歴・監査ログ改善</span></div><p>更新履歴を最大500件取得し、操作者・期間・変更内容での絞り込みを改善。変更項目を「変更前 → 変更後」で確認できる詳細表示と、フィルター後に別履歴が開く問題を修正。</p></div>
+          <div class="release-entry"><div><strong>Ver4.0.5</strong><span>カレンダー操作性改善</span></div><p>社内予定の直接削除、土日祝の色分け、月間カレンダーの「ほか○件」からその日の全予定を確認できる機能を追加。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.4</strong><span>共有・表示修正</span></div><p>材料マスタを専用共有APIへ移行し、全PC共有とバックアップ対象化。バージョン表示を統一。</p></div>
           <div class="release-entry"><div><strong>Ver4.0</strong><span>システム管理</span></div><p>バックアップセンター、復元、エクスポート、インポート、リリース履歴を追加。</p></div>
           <div class="release-entry"><div><strong>Ver3.7</strong><span>UI・キャラクター演出</span></div><p>当番ねこの掃除演出とキラキラ、るでぃくんのしっぽアニメーションを調整。</p></div>
@@ -1368,7 +1385,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.5-calendar-usability"
+    src="/app.js?v=4.0.6-history-audit"
     defer
   ></script>
 

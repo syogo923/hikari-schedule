@@ -4057,3 +4057,109 @@ input[aria-busy="true"] {
   justify-content:flex-end;
   margin-top:16px;
 }
+
+
+/* Update history audit-log improvements */
+.history-toolbar{
+  grid-template-columns:repeat(4,minmax(150px,1fr));
+}
+.history-result-line{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:10px 0 14px;
+  color:#64748b;
+  font-size:12px;
+}
+.history-result-line strong{
+  color:#0d1b3d;
+  font-size:14px;
+}
+.history-change-summary{
+  color:#40576d;
+  line-height:1.6;
+}
+.history-detail-meta{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px 16px;
+  margin:12px 0 20px;
+  color:#64748b;
+}
+.history-detail-meta strong{
+  color:#0d1b3d;
+}
+.history-change-section{
+  margin:8px 0 18px;
+}
+.history-change-section>h3{
+  margin:0 0 10px;
+}
+.history-change-list{
+  display:grid;
+  gap:8px;
+}
+.history-change-row{
+  display:grid;
+  grid-template-columns:minmax(110px,180px) minmax(0,1fr);
+  gap:14px;
+  align-items:start;
+  padding:12px 14px;
+  border:1px solid #dbe5ee;
+  border-radius:10px;
+  background:#f8fbfd;
+}
+.history-change-row>div{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  gap:10px;
+  align-items:center;
+}
+.history-change-row i{
+  color:#7a8ea3;
+  font-style:normal;
+  font-weight:900;
+}
+.history-before,.history-after{
+  min-width:0;
+  padding:7px 9px;
+  border-radius:7px;
+  overflow-wrap:anywhere;
+}
+.history-before{
+  background:#fff3f3;
+  color:#9e4040;
+}
+.history-after{
+  background:#eef8f2;
+  color:#27714a;
+}
+.history-no-changes{
+  padding:12px 14px;
+  border-radius:9px;
+  background:#f5f7fa;
+  color:#64748b;
+}
+.history-snapshot-details{
+  margin-top:14px;
+  border-top:1px solid #e2e8f0;
+  padding-top:14px;
+}
+.history-snapshot-details>summary{
+  cursor:pointer;
+  color:#315f86;
+  font-weight:800;
+}
+.history-snapshot-details .history-compare{
+  margin-top:14px;
+}
+@media(max-width:900px){
+  .history-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:620px){
+  .history-toolbar{grid-template-columns:1fr}
+  .history-change-row{grid-template-columns:1fr}
+  .history-change-row>div{grid-template-columns:1fr}
+  .history-change-row i{text-align:center}
+}

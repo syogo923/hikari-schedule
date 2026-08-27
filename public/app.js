@@ -2371,8 +2371,9 @@ function fillSelects() {
   renderActorChoices('actorSettingsChoices', S.actorEmployeeId);
   if ($('historyActorFilter')) {
     const current = $('historyActorFilter').value;
-    $('historyActorFilter').innerHTML = '<option value="">すべて</option>' + ordered('employees').map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
-    $('historyActorFilter').value = current;
+    $('historyActorFilter').innerHTML = '<option value="">すべて</option>' +
+      ordered('employees').map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('');
+    $('historyActorFilter').value = [...$('historyActorFilter').options].some(option => option.value === current) ? current : '';
   }
   if ($('employeeChoicesField')) $('employeeChoicesField').hidden = false;
   if ($('legacyImportEmployeeLabel')) $('legacyImportEmployeeLabel').hidden = true;
@@ -2956,33 +2957,169 @@ function historyActorId(item) {
 }
 
 function historyActorName(item) {
-  return item.actorName || employeeName(historyActorId(item));
+  return safeTrim(item.actorName || '') || employeeName(historyActorId(item)) || '光ポータル';
 }
 
 function historyProject(item) {
   return item.project || item.after || item.before || item.data || {};
 }
 
-const historyLabels = { create: '案件追加', add: '案件追加', update: '案件編集', edit: '案件編集', complete: '完了', reopen: '完了解除', toggle: '完了状態変更', delete: '案件削除' };
+const historyLabels = {
+  create: '案件追加',
+  add: '案件追加',
+  update: '案件編集',
+  edit: '案件編集',
+  complete: '完了',
+  reopen: '完了解除',
+  toggle: '完了状態変更',
+  delete: '案件削除'
+};
+
+function historyEmployeeNamesFromIds(value) {
+  const ids = Array.isArray(value) ? value : value ? [value] : [];
+  if (!ids.length) return '—';
+  return ids.map(id => employeeName(id)).join('・');
+}
+
+function historyProgressText(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '—';
+  const entries = Object.entries(value);
+  if (!entries.length) return '未完了';
+  const complete = entries.filter(([,state]) => Boolean(state?.completed ?? state === true)).length;
+  return `${complete}/${entries.length}名完了`;
+}
+
+function historyLifecycleText(value) {
+  const status = value?.status || value;
+  if (status === 'delivered') return '納品完了';
+  if (status === 'production_complete') return '製作完了';
+  if (status === 'in_progress') return '製作中';
+  return status ? String(status) : '—';
+}
+
+function historyValueText(field, value) {
+  if (value === null || value === undefined || value === '') return '—';
+  if (field === 'employeeIds' || field === 'employeeId') return historyEmployeeNamesFromIds(value);
+  if (field === 'dueDate') return /^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? jp(String(value)) : String(value);
+  if (field === 'completed') return value ? '完了' : '未完了';
+  if (field === 'assigneeProgress') return historyProgressText(value);
+  if (field === 'lifecycle') return historyLifecycleText(value);
+  if (field === 'portalState') {
+    const progress = historyProgressText(value?.assigneeProgress);
+    const lifecycle = historyLifecycleText(value?.lifecycle);
+    return `${lifecycle}・${progress}`;
+  }
+  if (Array.isArray(value)) return value.map(v => String(v)).join('・') || '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function normalizedHistoryChanges(item) {
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  // portalState は担当者進捗・案件ステータスと内容が重複するため、
+  // 個別変更が記録されている場合は一覧・詳細から除外する。
+  const hasProgress = changes.some(change => change.field === 'assigneeProgress');
+  const hasLifecycle = changes.some(change => change.field === 'lifecycle');
+  return changes.filter(change => change.field !== 'portalState' || (!hasProgress && !hasLifecycle));
+}
+
+function historyChangeSummary(item, maxItems = 3) {
+  const changes = normalizedHistoryChanges(item);
+  if (!changes.length) {
+    const action = historyAction(item);
+    if (action === 'create' || action === 'add') return '案件を登録しました';
+    if (action === 'delete') return '案件を削除しました';
+    return safeTrim(item.summary || '') || '変更内容の詳細記録はありません';
+  }
+  const rows = changes.slice(0, maxItems).map(change => {
+    const before = historyValueText(change.field, change.before);
+    const after = historyValueText(change.field, change.after);
+    return `${change.label || change.field}：${before} → ${after}`;
+  });
+  if (changes.length > maxItems) rows.push(`ほか${changes.length - maxItems}項目`);
+  return rows.join(' ／ ');
+}
+
+function historyDateMatches(item, filter) {
+  if (!filter) return true;
+  const raw = item.createdAt || item.updatedAt || item.timestamp;
+  const date = raw ? new Date(raw) : null;
+  if (!date || Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  if (filter === 'today') {
+    return date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate();
+  }
+  const days = filter === 'week' ? 7 : filter === 'month' ? 30 : 0;
+  if (!days) return true;
+  return now.getTime() - date.getTime() <= days * 86400000;
+}
+
+function fillHistoryActorFilter() {
+  const select = $('historyActorFilter');
+  if (!select) return;
+  const current = select.value;
+  const names = [...new Set(
+    S.history.map(historyActorName).map(safeTrim).filter(Boolean)
+  )].sort((a,b) => a.localeCompare(b, 'ja'));
+  select.innerHTML = '<option value="">すべて</option>' +
+    names.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  select.value = names.includes(current) ? current : '';
+}
 
 function renderHistory() {
   if (!$('historyList')) return;
   const actionFilter = $('historyActionFilter')?.value || '';
   const actorFilter = $('historyActorFilter')?.value || '';
+  const dateFilter = $('historyDateFilter')?.value || '';
   const query = ($('historySearch')?.value || '').trim().toLowerCase();
+
   const list = S.history.filter(item => {
     const action = historyAction(item);
     const project = historyProject(item);
     if (isSharedPortalProject(project)) return false;
-    const text = [project.shipNo, project.displayName, item.summary, historyActorName(item)].join(' ').toLowerCase();
-    return (!actionFilter || action === actionFilter) && (!actorFilter || historyActorId(item) === actorFilter) && (!query || text.includes(query));
+    const changesText = normalizedHistoryChanges(item)
+      .flatMap(change => [
+        change.label,
+        historyValueText(change.field, change.before),
+        historyValueText(change.field, change.after)
+      ])
+      .join(' ');
+    const text = [
+      project.shipNo,
+      project.displayName,
+      project.productName,
+      project.client,
+      item.summary,
+      historyActorName(item),
+      changesText
+    ].join(' ').toLowerCase();
+
+    return (!actionFilter || action === actionFilter) &&
+      (!actorFilter || historyActorName(item) === actorFilter) &&
+      historyDateMatches(item, dateFilter) &&
+      (!query || text.includes(query));
   });
+
+  if ($('historyResultCount')) $('historyResultCount').textContent = `${list.length}件`;
   if ($('historyEmpty')) $('historyEmpty').hidden = list.length !== 0;
-  $('historyList').innerHTML = list.map((item, index) => {
+
+  $('historyList').innerHTML = list.map(item => {
     const project = historyProject(item);
     const actorId = historyActorId(item);
     const action = historyAction(item);
-    return `<article class="history-item" style="${employeeColorStyle(actorId)}"><button type="button" data-history-index="${index}"><div class="history-meta"><time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time><span class="history-actor">${esc(historyActorName(item))}</span><strong>${esc(historyLabels[action] || action || '更新')}</strong></div><h3>${esc(project.shipNo || '—')} ${esc(project.displayName || '')}</h3><p>${esc(item.summary || project.notes || '')}</p></button></article>`;
+    return `<article class="history-item" style="${employeeColorStyle(actorId)}">
+      <button type="button" data-history-id="${esc(item.id || '')}">
+        <div class="history-meta">
+          <time>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</time>
+          <span class="history-actor">${esc(historyActorName(item))}</span>
+          <strong>${esc(historyLabels[action] || action || '更新')}</strong>
+        </div>
+        <h3>${esc(project.shipNo || item.shipNo || '—')} ${esc(project.displayName || item.displayName || '')}</h3>
+        <p class="history-change-summary">${esc(historyChangeSummary(item))}</p>
+      </button>
+    </article>`;
   }).join('');
 }
 
@@ -2991,9 +3128,10 @@ async function loadHistory() {
   $('historyLoading').hidden = false;
   $('historyError').textContent = '';
   try {
-    const data = await api(`${API.projects}?history=1`);
+    const data = await api(`${API.projects}?history=1&limit=500`);
     S.history = data.history || data.items || [];
     S.historyLoaded = true;
+    fillHistoryActorFilter();
     renderHistory();
   } catch (error) {
     $('historyError').textContent = error.message;
@@ -3002,16 +3140,75 @@ async function loadHistory() {
   }
 }
 
-function openHistoryDetail(index) {
-  const item = S.history[index];
-  if (!item) return;
+function historySnapshotTable(data) {
+  if (!data) return '<p class="muted">記録なし</p>';
+  return `<dl>
+    <dt>案件番号</dt><dd>${esc(data.shipNo || '—')}</dd>
+    <dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd>
+    <dt>製品名</dt><dd>${esc(data.productName || '—')}</dd>
+    <dt>得意先</dt><dd>${esc(data.client || '—')}</dd>
+    <dt>担当者</dt><dd>${esc(historyEmployeeNamesFromIds(data.employeeIds || data.employeeId))}</dd>
+    <dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd>
+    <dt>数量</dt><dd>${esc(data.quantity ?? '—')}</dd>
+    <dt>仕様・備考</dt><dd>${esc(data.spec || '—')}</dd>
+    <dt>メモ</dt><dd>${esc(data.notes || '—')}</dd>
+    <dt>担当者進捗</dt><dd>${esc(historyProgressText(data.assigneeProgress))}</dd>
+    <dt>案件ステータス</dt><dd>${esc(historyLifecycleText(data.lifecycle))}</dd>
+  </dl>`;
+}
+
+function historyChangesHtml(item) {
+  const changes = normalizedHistoryChanges(item);
+  if (!changes.length) {
+    return `<div class="history-no-changes">${esc(historyChangeSummary(item))}</div>`;
+  }
+  return `<div class="history-change-list">${changes.map(change => `
+    <article class="history-change-row">
+      <strong>${esc(change.label || change.field)}</strong>
+      <div><span class="history-before">${esc(historyValueText(change.field, change.before))}</span><i aria-hidden="true">→</i><span class="history-after">${esc(historyValueText(change.field, change.after))}</span></div>
+    </article>
+  `).join('')}</div>`;
+}
+
+function openHistoryDetailById(id) {
+  const item = S.history.find(entry => String(entry.id || '') === String(id || ''));
+  if (!item) return toast('更新履歴が見つかりません。');
   const before = item.before || null;
   const after = item.after || item.project || null;
-  const table = data => data ? `<dl><dt>番船</dt><dd>${esc(data.shipNo || '—')}</dd><dt>表示名</dt><dd>${esc(data.displayName || '—')}</dd><dt>担当者</dt><dd>${esc(employeeNames(data))}</dd><dt>納期</dt><dd>${esc(data.dueDate ? jp(data.dueDate) : '—')}</dd><dt>メモ</dt><dd>${esc(data.notes || '—')}</dd></dl>` : '<p class="muted">記録なし</p>';
-  $('historyDetailBody').innerHTML = `<header><h2>更新履歴の詳細</h2><button type="button" data-close>×</button></header><p><strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>　${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</p><p>操作者：${esc(historyActorName(item))}</p><div class="history-compare"><section><h3>変更前</h3>${table(before)}</section><section><h3>変更後</h3>${table(after)}</section></div><footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
+  const project = historyProject(item);
+  $('historyDetailBody').innerHTML = `
+    <header>
+      <div>
+        <p class="dialog-eyebrow">CHANGE AUDIT LOG</p>
+        <h2>${esc(project.shipNo || item.shipNo || '—')} ${esc(project.displayName || item.displayName || '')}</h2>
+      </div>
+      <button type="button" data-close>×</button>
+    </header>
+    <div class="history-detail-meta">
+      <strong>${esc(historyLabels[historyAction(item)] || historyAction(item) || '更新')}</strong>
+      <span>${esc(jpDateTime(item.createdAt || item.updatedAt || item.timestamp))}</span>
+      <span>操作者：${esc(historyActorName(item))}</span>
+    </div>
+    <section class="history-change-section">
+      <h3>変更された項目</h3>
+      ${historyChangesHtml(item)}
+    </section>
+    <details class="history-snapshot-details">
+      <summary>変更前・変更後の全データを確認</summary>
+      <div class="history-compare">
+        <section><h3>変更前</h3>${historySnapshotTable(before)}</section>
+        <section><h3>変更後</h3>${historySnapshotTable(after)}</section>
+      </div>
+    </details>
+    <footer><button type="button" class="secondary" data-close>閉じる</button></footer>`;
   $('historyDetailDialog').showModal();
 }
 
+// 後方互換：旧コードからindex指定されても正しい履歴を開ける。
+function openHistoryDetail(index) {
+  const item = S.history[index];
+  if (item) openHistoryDetailById(item.id);
+}
 
 
 function formatSyncDateTime(value) {
@@ -3495,6 +3692,7 @@ function bindFixedEvents() {
   $('refreshHistory').onclick = loadHistory;
   $('historyActionFilter').onchange = renderHistory;
   $('historyActorFilter').onchange = renderHistory;
+  if ($('historyDateFilter')) $('historyDateFilter').onchange = renderHistory;
   $('historySearch').oninput = renderHistory;
   $('applyUpdate').onclick = async () => {
     hideRemoteUpdateNotice();
@@ -3977,6 +4175,7 @@ function bindDelegatedEvents() {
           }
         }
       }
+      else if (button.dataset.historyId !== undefined) openHistoryDetailById(button.dataset.historyId);
       else if (button.dataset.historyIndex !== undefined) openHistoryDetail(Number(button.dataset.historyIndex));
       else if (button.dataset.medit) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.medit); const newName = prompt('新しい名称を入力してください。', item?.name || ''); if (newName !== null && newName.trim()) { await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.medit, name: newName.trim() } }); await load(); } }
       else if (button.dataset.mtoggle) { const item = S.masters[button.dataset.type].find(x => x.id === button.dataset.mtoggle); await api(API.masters, { method: 'PUT', body: { type: button.dataset.type, id: button.dataset.mtoggle, active: item?.active === false } }); await load(); }
