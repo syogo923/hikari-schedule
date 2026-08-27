@@ -15,7 +15,7 @@
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=4.0.4-materials-shared">
+  <link rel="stylesheet" href="/style.css?v=history-audit-v1">
 </head>
 
 <body>
@@ -456,7 +456,7 @@
         <div>
           <h2>更新履歴</h2>
           <p class="muted">
-            案件の追加・編集・完了・削除の履歴を確認できます。
+            誰が・いつ・何を変更したかを、変更前後の内容まで確認できます。
           </p>
         </div>
 
@@ -492,11 +492,21 @@
         </label>
 
         <label>
+          期間
+          <select id="historyDateFilter">
+            <option value="">すべて</option>
+            <option value="today">今日</option>
+            <option value="week">過去7日</option>
+            <option value="month">過去30日</option>
+          </select>
+        </label>
+
+        <label>
           履歴を検索
           <input
             id="historySearch"
             type="search"
-            placeholder="番船・表示名を検索"
+            placeholder="案件番号・表示名・変更内容を検索"
             autocomplete="off"
           >
         </label>
@@ -1353,7 +1363,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.4-materials-shared"
+    src="/app.js?v=history-audit-v1"
     defer
   ></script>
 
