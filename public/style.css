@@ -4400,3 +4400,100 @@ input[aria-busy="true"] {
   .material-editor-form{ padding:16px; }
   .material-editor-color-line{ flex-direction:column; align-items:flex-start; }
 }
+
+
+/* Ver4.0.9 - Area calculator: selected material thickness and color */
+#calcAreaPanel .area-selected-material-info[hidden]{display:none!important;}
+#calcAreaPanel .area-selected-material-info{
+  margin:-4px 0 14px;
+  padding:13px 15px;
+  border:1px solid #d9e5f1;
+  border-left:4px solid #376bb3;
+  border-radius:11px;
+  background:#f6f9fe;
+}
+#calcAreaPanel .area-selected-material-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:9px;
+}
+#calcAreaPanel .area-selected-material-heading{display:grid;gap:3px;min-width:0;}
+#calcAreaPanel .area-selected-material-caption{font-size:11px;color:#71829b;font-weight:800;}
+#calcAreaPanel .area-selected-material-heading>strong{
+  color:#13284c;
+  font-size:15px;
+  overflow-wrap:anywhere;
+}
+#calcAreaPanel .area-selected-material-edit{
+  min-height:32px;
+  padding:6px 10px;
+  border:1px solid #c4d6e9;
+  border-radius:8px;
+  background:#fff;
+  color:#315c87;
+  font-size:12px;
+  font-weight:800;
+  white-space:nowrap;
+  cursor:pointer;
+}
+#calcAreaPanel .area-selected-material-specs{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin-top:11px;
+}
+#calcAreaPanel .area-selected-material-spec{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:9px;
+  min-width:0;
+  padding:8px 11px;
+  border:1px solid #e4ebf3;
+  border-radius:9px;
+  background:#fff;
+}
+#calcAreaPanel .area-selected-material-spec-label{
+  color:#667b94;
+  font-size:12px;
+  font-weight:800;
+}
+#calcAreaPanel .area-selected-material-spec strong{
+  color:#142d50;
+  font-size:14px;
+  overflow-wrap:anywhere;
+}
+#calcAreaPanel .area-selected-material-spec .is-missing{color:#a06a28;font-size:12px;}
+#calcAreaPanel .area-selected-material-color{display:inline-flex;align-items:center;gap:8px;min-width:0;}
+#calcAreaPanel .area-selected-material-swatch{
+  flex:0 0 24px;
+  width:24px;
+  height:24px;
+  border-radius:7px;
+}
+#calcAreaPanel .area-selected-material-swatch-unknown{
+  display:inline-flex;
+  justify-content:center;
+  align-items:center;
+  flex:0 0 24px;
+  width:24px;
+  height:24px;
+  border:1px dashed #bdc9d8;
+  border-radius:7px;
+  color:#9cabc0;
+  background:#fafbfe;
+  font-size:12px;
+}
+#calcAreaPanel .area-selected-material-notice{
+  margin:9px 0 0;
+  font-size:11px;
+  line-height:1.5;
+  color:#8e682f;
+}
+#calcAreaPanel .area-selected-material-notice[hidden]{display:none!important;}
+@media(max-width:520px){
+  #calcAreaPanel .area-selected-material-specs{grid-template-columns:1fr;gap:7px;}
+  #calcAreaPanel .area-selected-material-head{align-items:flex-start;}
+}

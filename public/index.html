@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver4.0.8 Network Edition</title>
+  <title>光ポータル Ver4.0.9 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=4.0.8-material-directory">
+  <link rel="stylesheet" href="/style.css?v=4.0.9-material-picker">
 </head>
 
 <body>
@@ -136,7 +136,7 @@
 
       <div>
         <h1>光ポータル</h1>
-        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.8</span></p>
+        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.9</span></p>
       </div>
     </div>
 
@@ -565,6 +565,26 @@
           <form id="areaCalculatorForm" class="calculator-card">
             <div class="card-title"><div><span class="step-badge">01</span><h3>面積から計算</h3></div><button type="button" id="clearAreaCalculator" class="text-button">入力をクリア</button></div>
             <label>材料マスタ<select id="areaMaterialSelect"><option value="">選択しない</option></select></label>
+            <div id="areaSelectedMaterialInfo" class="area-selected-material-info" hidden aria-live="polite">
+              <div class="area-selected-material-head">
+                <div class="area-selected-material-heading">
+                  <span class="area-selected-material-caption">選択中の材料</span>
+                  <strong id="areaSelectedMaterialName"></strong>
+                </div>
+                <button type="button" id="areaSelectedMaterialEdit" class="area-selected-material-edit secondary">材料情報を編集</button>
+              </div>
+              <div class="area-selected-material-specs">
+                <div class="area-selected-material-spec">
+                  <span class="area-selected-material-spec-label">厚み</span>
+                  <strong id="areaSelectedMaterialThickness"></strong>
+                </div>
+                <div class="area-selected-material-spec">
+                  <span class="area-selected-material-spec-label">色</span>
+                  <span id="areaSelectedMaterialColor" class="area-selected-material-color"></span>
+                </div>
+              </div>
+              <p id="areaSelectedMaterialNotice" class="area-selected-material-notice" hidden></p>
+            </div>
             <div class="dimension-grid">
               <label>材料 縦<div class="unit-input"><input id="materialHeight" type="number" min="0" step="any" inputmode="decimal"><select id="materialHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
               <label>材料 横<div class="unit-input"><input id="materialWidth" type="number" min="0" step="any" inputmode="decimal"><select id="materialWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
@@ -692,7 +712,7 @@
       <div class="system-admin-shell">
         <div class="system-admin-head">
           <div><span class="eyebrow">SYSTEM MANAGEMENT</span><h2>システム管理</h2><p>光ポータルの共有データとリリース情報を管理します。</p></div>
-          <span class="system-version" data-portal-version>Ver4.0.8</span>
+          <span class="system-version" data-portal-version>Ver4.0.9</span>
         </div>
         <div class="backup-status-card">
           <div><span class="backup-status-label">最終バックアップ</span><strong id="backupLastAt">このPCではまだありません</strong><small id="backupLastName">バックアップはこのPCへ保存されます</small></div>
@@ -707,6 +727,7 @@
         </div>
         <div id="releaseHistoryPanel" class="release-history-panel" hidden>
           <div class="release-history-head"><div><span class="eyebrow">RELEASE NOTES</span><h3>リリース履歴</h3></div></div>
+          <div class="release-entry"><div><strong>Ver4.0.9</strong><span>面積計算・材料情報の見える化</span></div><p>面積計算で材料マスタを選択すると厚み・色名・色見本を表示。選択肢にも厚みと色を併記し、未登録項目は明示して材料編集へ直接移動できるように改善。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.8</strong><span>材料マスタの一覧・登録UI改善</span></div><p>材料一覧を検索・種類別絞り込み・並べ替え・お気に入り・ページ分割に対応。登録・編集をダイアログ化し、厚み・色名・色見本を追加。価格履歴と全PC共有を継続。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.7</strong><span>更新履歴UI・バージョン管理改善</span></div><p>更新履歴カードを全面整理し、変更項目を読みやすく表示。[object Object]表示を解消し、PORTAL_VERSIONを基準にタイトル・ロゴ下・システム管理のバージョン表示を同期。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.6</strong><span>更新履歴・監査ログ改善</span></div><p>更新履歴を最大500件取得し、操作者・期間・変更内容での絞り込みを改善。変更項目を「変更前 → 変更後」で確認できる詳細表示と、フィルター後に別履歴が開く問題を修正。</p></div>
@@ -1459,7 +1480,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.8-material-directory"
+    src="/app.js?v=4.0.9-material-picker"
     defer
   ></script>
 

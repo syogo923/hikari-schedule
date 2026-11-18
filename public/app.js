@@ -15,7 +15,7 @@
 
 'use strict';
 
-const PORTAL_VERSION = '4.0.8';
+const PORTAL_VERSION = '4.0.9';
 
 const API = {
   projects: '/api/projects',
@@ -4658,13 +4658,65 @@ function materialLastUpdated(item) {
   return Date.parse(item.updatedAt || item.priceHistory.at(-1)?.recordedAt || item.effectiveDate || '') || 0;
 }
 
+function materialPickerOptionLabel(item) {
+  const name = safeTrim(item.name) || '名称未設定';
+  const thickness = Number(item.thickness) > 0 ? `${item.thickness}mm` : '厚み未登録';
+  const color = materialColorLabel(item) || '色未登録';
+  return `${name}  ｜ ${thickness}・${color}`;
+}
+
+function renderAreaSelectedMaterialInfo() {
+  const info = $('areaSelectedMaterialInfo');
+  const select = $('areaMaterialSelect');
+  if (!info || !select) return;
+
+  const item = S.materials.find(material => String(material.id) === select.value);
+  if (!item) {
+    info.hidden = true;
+    return;
+  }
+
+  const color = materialColorLabel(item);
+  const thickness = Number(item.thickness) > 0 ? `${item.thickness} mm` : '未登録';
+  const hasThickness = Number(item.thickness) > 0;
+  const hasColor = Boolean(color);
+  const name = $('areaSelectedMaterialName');
+  const thicknessNode = $('areaSelectedMaterialThickness');
+  const colorNode = $('areaSelectedMaterialColor');
+  const notice = $('areaSelectedMaterialNotice');
+  const edit = $('areaSelectedMaterialEdit');
+
+  if (name) name.textContent = safeTrim(item.name) || '名称未設定';
+  if (thicknessNode) {
+    thicknessNode.textContent = thickness;
+    thicknessNode.classList.toggle('is-missing', !hasThickness);
+  }
+  if (colorNode) {
+    colorNode.innerHTML = hasColor
+      ? `${materialColorSwatchHtml(item, 'area-selected-material-swatch')}<strong>${esc(color)}</strong>`
+      : `<span class="area-selected-material-swatch-unknown" aria-hidden="true">?</span><strong class="is-missing">未登録</strong>`;
+  }
+  if (edit) edit.dataset.materialEdit = String(item.id);
+
+  if (notice) {
+    const missing = [!hasThickness ? '厚み' : '', !hasColor ? '色' : ''].filter(Boolean);
+    notice.hidden = missing.length === 0;
+    notice.textContent = missing.length
+      ? `${missing.join('・')}が未登録です。「材料情報を編集」から登録できます。`
+      : '';
+  }
+
+  info.hidden = false;
+}
+
 function renderMaterialMaster() {
   const select = $('areaMaterialSelect');
   if (select) {
     const current = select.value;
     select.innerHTML = '<option value="">選択しない</option>' +
-      S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
-    select.value = S.materials.some(item => item.id === current) ? current : '';
+      S.materials.map(item => `<option value="${esc(item.id)}">${esc(materialPickerOptionLabel(item))}</option>`).join('');
+    select.value = S.materials.some(item => String(item.id) === current) ? current : '';
+    renderAreaSelectedMaterialInfo();
   }
 
   const list = $('materialMasterList');
@@ -4765,6 +4817,7 @@ function applyMaterial(id) {
   $('materialWidthUnit').value = item.widthUnit;
   if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
   updateMaterialPriceFromSelection();
+  renderAreaSelectedMaterialInfo();
 }
 
 function switchCalculatorTab(tab) {
@@ -4776,7 +4829,14 @@ function switchCalculatorTab(tab) {
 function bindCalculatorEvents() {
   document.querySelectorAll('[data-calc-tab]').forEach(button => button.onclick = () => switchCalculatorTab(button.dataset.calcTab));
   $('areaMaterialSelect').onchange = event => {
-    if (event.target.value) applyMaterial(event.target.value);
+    if (event.target.value) {
+      applyMaterial(event.target.value);
+    } else {
+      renderAreaSelectedMaterialInfo();
+      if ($('materialPriceSource')) {
+        $('materialPriceSource').textContent = '材料マスタを選ぶと、指定した価格改定日時点の価格を自動入力します。';
+      }
+    }
   };
   $('materialPriceDate').onchange = updateMaterialPriceFromSelection;
   $('areaCalculatorForm').onsubmit = event => {
@@ -4795,7 +4855,14 @@ function bindCalculatorEvents() {
     $('productAreaResult').textContent = areaText(pa);
     $('areaRatioResult').textContent = `${(ratio * 100).toLocaleString('ja-JP', { maximumFractionDigits: 4 })} %`;
   };
-  $('clearAreaCalculator').onclick = () => { $('areaCalculatorForm').reset(); ['areaCostResult','areaCostCeil','materialAreaResult','productAreaResult','areaRatioResult'].forEach(id => $(id).textContent='—'); };
+  $('clearAreaCalculator').onclick = () => {
+    $('areaCalculatorForm').reset();
+    renderAreaSelectedMaterialInfo();
+    if ($('materialPriceSource')) {
+      $('materialPriceSource').textContent = '材料マスタを選ぶと、指定した価格改定日時点の価格を自動入力します。';
+    }
+    ['areaCostResult','areaCostCeil','materialAreaResult','productAreaResult','areaRatioResult'].forEach(id => $(id).textContent='—');
+  };
   $('yieldCalculatorForm').onsubmit = event => {
     event.preventDefault(); const price=Number($('yieldMaterialPrice').value), count=Number($('yieldCount').value);
     if (!(price >= 0) || !(count > 0)) return toast('材料価格と取り数を正しく入力してください。');
