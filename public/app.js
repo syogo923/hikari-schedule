@@ -15,7 +15,7 @@
 
 'use strict';
 
-const PORTAL_VERSION = '4.0.7';
+const PORTAL_VERSION = '4.0.8';
 
 const API = {
   projects: '/api/projects',
@@ -4191,35 +4191,36 @@ function bindDelegatedEvents() {
         }
       }
       else if (button.dataset.toggle) { await api(API.projects, { method: 'PUT', body: { id: button.dataset.toggle, action: 'toggle', ...actorPayload() } }); await load(); }
-      else if (button.dataset.materialUse) { applyMaterial(button.dataset.materialUse); switchView('calculator'); switchCalculatorTab('area'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else if (button.dataset.materialHistory) { openMaterialHistory(button.dataset.materialHistory); }
+      else if (button.id === 'openMaterialEditor') openMaterialEditor();
+      else if (button.id === 'materialDirectoryPrev') {
+        materialDirectoryPage = Math.max(0, materialDirectoryPage - 1);
+        renderMaterialMaster();
+      }
+      else if (button.id === 'materialDirectoryNext') {
+        materialDirectoryPage += 1;
+        renderMaterialMaster();
+      }
+      else if (button.dataset.materialUse) {
+        applyMaterial(button.dataset.materialUse);
+        switchView('calculator');
+        switchCalculatorTab('area');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      else if (button.dataset.materialHistory) openMaterialHistory(button.dataset.materialHistory);
+      else if (button.dataset.materialFavorite) {
+        await toggleMaterialFavorite(button.dataset.materialFavorite);
+      }
       else if (button.dataset.materialEdit) {
-        const rawItem = S.materials.find(x => x.id === button.dataset.materialEdit);
-        if (rawItem) {
-          const item = normalizeMaterial(rawItem);
-          $('materialMasterId').value = item.id;
-          $('materialMasterName').value = item.name;
-          $('materialMasterHeight').value = item.height;
-          $('materialMasterHeightUnit').value = item.heightUnit;
-          $('materialMasterWidth').value = item.width;
-          $('materialMasterWidthUnit').value = item.widthUnit;
-          $('materialMasterPrice').value = item.price;
-          $('materialMasterEffectiveDate').value = item.effectiveDate || todayIsoDate();
-          $('materialMasterSupplier').value = item.supplier || '';
-          $('materialMasterChangeReason').value = '';
-          $('cancelMaterialEdit').hidden = false;
-          switchView('calculator');
-          switchCalculatorTab('materials');
-        }
+        button.closest('details')?.removeAttribute('open');
+        openMaterialEditor(button.dataset.materialEdit);
       }
       else if (button.dataset.materialDelete) {
+        button.closest('details')?.removeAttribute('open');
         const item = S.materials.find(x => x.id === button.dataset.materialDelete);
         const approved = await confirmDangerAction({ title: '材料を削除しますか？', message: '登録した材料マスタから削除します。', detail: item?.name || '', confirmText: '削除する' });
-        if (approved) {
+        if (approved && item) {
           const previousMaterials = S.materials.map(material => normalizeMaterial(material));
-          S.materials = S.materials.filter(
-            x => x.id !== button.dataset.materialDelete
-          );
+          S.materials = S.materials.filter(x => x.id !== item.id);
           try {
             await saveMaterials();
             toast('材料を全PCから削除しました');
@@ -4284,8 +4285,16 @@ function normalizeMaterial(item = {}) {
   );
 
   const latest = history[history.length - 1];
+  const thickness = item.thickness === null || item.thickness === undefined || item.thickness === ''
+    ? null : Number(item.thickness);
+
   return {
     ...item,
+    thickness: Number.isFinite(thickness) && thickness > 0 ? thickness : null,
+    color: safeTrim(item.color),
+    colorHex: /^#[0-9a-f]{6}$/i.test(String(item.colorHex || '')) ? String(item.colorHex).toLowerCase() : '',
+    category: safeTrim(item.category),
+    favorite: item.favorite === true,
     price: Number(latest?.price ?? currentPrice),
     effectiveDate: latest?.effectiveDate || currentDate,
     supplier: safeTrim(latest?.supplier || item.supplier),
@@ -4498,6 +4507,157 @@ function areaText(mm2) {
   return `${mm2.toLocaleString('ja-JP', { maximumFractionDigits: 2 })} mm² ／ ${(mm2 / 1000000).toLocaleString('ja-JP', { maximumFractionDigits: 6 })} m²`;
 }
 
+const MATERIAL_DIRECTORY_PAGE_SIZE = 20;
+let materialDirectoryPage = 0;
+let materialFavoriteSaving = false;
+
+const MATERIAL_CATEGORY_SUGGESTIONS = [
+  'アクリル', '塩ビ', '真鍮', 'アルミ', 'ステンレス',
+  'ターポリン・シート', 'その他の樹脂', 'その他'
+];
+
+function materialCategory(item) {
+  const saved = safeTrim(item.category);
+  if (saved) return saved;
+  const name = safeTrim(item.name).toLowerCase();
+  if (/アクリル|ｱｸﾘﾙ|\bpmma\b/.test(name)) return 'アクリル';
+  if (/塩ビ|塩化ビニル|\bpvc\b/.test(name)) return '塩ビ';
+  if (/真鍮|しんちゅう|黄銅|brass/.test(name)) return '真鍮';
+  if (/ステンレス|\bsus\b/.test(name)) return 'ステンレス';
+  if (/アルミ|アルミニウム|aluminum|aluminium/.test(name)) return 'アルミ';
+  if (/ターポリン|ポリン|シート|フィルム|メディア/.test(name)) return 'ターポリン・シート';
+  if (/ポリカ|pet|abs|樹脂/.test(name)) return 'その他の樹脂';
+  return 'その他';
+}
+
+function materialThickness(item) {
+  if (Number.isFinite(Number(item.thickness)) && Number(item.thickness) > 0) {
+    return Number(item.thickness);
+  }
+  // Older entries often express thickness only in the material name (e.g. 3t 塩ビ).
+  // Display this as a convenience without silently rewriting the shared record.
+  const match = safeTrim(item.name).match(/(\d+(?:\.\d+)?)\s*[tｔ](?![a-zA-Z])/i);
+  return match ? Number(match[1]) : null;
+}
+
+function materialColorLabel(item) {
+  const specified = safeTrim(item.color);
+  if (specified) return specified;
+  const name = safeTrim(item.name);
+  const paren = name.match(/[（(]([^（）()]{1,16})[）)]/);
+  if (paren) {
+    const label = safeTrim(paren[1]);
+    if (/^(?:透明|クリア|乳半|乳白|白|黒|赤|青|緑|黄|グレー|灰|銀|金|シルバー|ゴールド)(?:色)?$/.test(label)) return label;
+  }
+  if (/透明|クリア/.test(name)) return '透明';
+  if (/乳半|乳白/.test(name)) return '乳白';
+  return '';
+}
+
+function materialColorPreset(label) {
+  const name = safeTrim(label).toLowerCase();
+  if (/透明|クリア/.test(name)) return '#ffffff';
+  if (/乳半|乳白/.test(name)) return '#f4f5e8';
+  if (/白|ホワイト|white/.test(name)) return '#ffffff';
+  if (/黒|ブラック|black/.test(name)) return '#26303b';
+  if (/赤|レッド|red/.test(name)) return '#de5252';
+  if (/青|ブルー|blue/.test(name)) return '#427bd6';
+  if (/緑|グリーン|green/.test(name)) return '#42966f';
+  if (/黄|イエロー|yellow/.test(name)) return '#eac647';
+  if (/灰|グレー|グレイ|gray|grey/.test(name)) return '#a3acb8';
+  if (/銀|シルバー|silver/.test(name)) return '#c8cfd7';
+  if (/金|ゴールド|gold/.test(name)) return '#d6a94d';
+  return '#94a3b8';
+}
+
+function materialColorSwatchHtml(item, className = '') {
+  const color = materialColorLabel(item);
+  const hex = /^#[0-9a-f]{6}$/i.test(String(item.colorHex || ''))
+    ? item.colorHex : materialColorPreset(color);
+  const transparency = /透明|クリア/.test(color);
+  return `<span class="material-color-swatch ${transparency ? 'is-transparent' : ''} ${className}" style="--material-color:${esc(hex)}" title="${esc(color || '色未設定')}" aria-hidden="true"></span>`;
+}
+
+function updateMaterialColorPreview({ fromPicker = false, preservePicker = false } = {}) {
+  const input = $('materialMasterColor');
+  const picker = $('materialMasterColorPicker');
+  const swatch = $('materialMasterColorSwatch');
+  const label = $('materialMasterColorPreviewText');
+  if (!input || !picker || !swatch || !label) return;
+  if (fromPicker && !safeTrim(input.value)) input.value = '指定色';
+  if (!fromPicker && !preservePicker) picker.value = materialColorPreset(input.value);
+  const color = safeTrim(input.value);
+  swatch.style.setProperty('--material-color', picker.value);
+  swatch.classList.toggle('is-transparent', /透明|クリア/.test(color));
+  label.textContent = color ? `${color}（見本）` : '色を指定すると見本を表示します';
+}
+
+function resetMaterialEditor() {
+  const form = $('materialMasterForm');
+  if (!form) return;
+  form.reset();
+  $('materialMasterId').value = '';
+  $('materialMasterCategory').value = '';
+  $('materialMasterEffectiveDate').value = todayIsoDate();
+  if ($('materialEditorTitle')) $('materialEditorTitle').textContent = '材料を登録';
+  updateMaterialColorPreview();
+}
+
+function openMaterialEditor(id = '') {
+  const dialog = $('materialEditorDialog');
+  if (!dialog) return;
+  resetMaterialEditor();
+  if (id) {
+    const raw = S.materials.find(item => item.id === id);
+    if (!raw) return;
+    const item = normalizeMaterial(raw);
+    $('materialMasterId').value = item.id;
+    $('materialMasterName').value = item.name;
+    $('materialMasterCategory').value = item.category || '';
+    $('materialMasterHeight').value = item.height;
+    $('materialMasterHeightUnit').value = item.heightUnit;
+    $('materialMasterWidth').value = item.width;
+    $('materialMasterWidthUnit').value = item.widthUnit;
+    $('materialMasterThickness').value = materialThickness(item) ?? '';
+    $('materialMasterColor').value = item.color || materialColorLabel(item) || (item.colorHex ? '指定色' : '');
+    $('materialMasterColorPicker').value = item.colorHex || materialColorPreset($('materialMasterColor').value);
+    $('materialMasterPrice').value = item.price;
+    $('materialMasterEffectiveDate').value = item.effectiveDate || todayIsoDate();
+    $('materialMasterSupplier').value = item.supplier || '';
+    $('materialMasterChangeReason').value = '';
+    $('materialEditorTitle').textContent = '材料を編集';
+    // Keep a stored custom hex when editing, even if it differs from the color-name preset.
+    updateMaterialColorPreview({ preservePicker: true });
+  }
+  if (!dialog.open) dialog.showModal();
+  $('materialMasterName')?.focus();
+}
+
+async function toggleMaterialFavorite(id) {
+  if (materialFavoriteSaving) return;
+  const item = S.materials.find(material => material.id === id);
+  if (!item) return;
+  materialFavoriteSaving = true;
+  const previous = item.favorite === true;
+  item.favorite = !previous;
+  renderMaterialMaster();
+  try {
+    await saveMaterials();
+    toast(item.favorite ? 'お気に入りへ追加しました（全PC共有）' : 'お気に入りを解除しました（全PC共有）');
+  } catch (error) {
+    item.favorite = previous;
+    localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(S.materials));
+    renderMaterialMaster();
+    toast(`お気に入りの保存に失敗しました：${error.message}`);
+  } finally {
+    materialFavoriteSaving = false;
+  }
+}
+
+function materialLastUpdated(item) {
+  return Date.parse(item.updatedAt || item.priceHistory.at(-1)?.recordedAt || item.effectiveDate || '') || 0;
+}
+
 function renderMaterialMaster() {
   const select = $('areaMaterialSelect');
   if (select) {
@@ -4506,27 +4666,92 @@ function renderMaterialMaster() {
       S.materials.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
     select.value = S.materials.some(item => item.id === current) ? current : '';
   }
+
   const list = $('materialMasterList');
   if (!list) return;
-  list.innerHTML = S.materials.length
-    ? S.materials.map(rawItem => {
-        const item = normalizeMaterial(rawItem);
-        return `<article class="material-row">
-          <div>
-            <strong>${esc(item.name)}</strong>
-            <span>${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}</span>
-            <small>${yen(Number(item.price), 0)} ／ 価格改定日 ${esc(item.effectiveDate || '—')}</small>
-            ${item.supplier ? `<small>仕入先：${esc(item.supplier)}</small>` : ''}
-          </div>
-          <div>
-            <button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button>
-            <button type="button" class="secondary" data-material-history="${esc(item.id)}">価格履歴 ${item.priceHistory.length}件</button>
+
+  const categories = [...new Set(S.materials.map(materialCategory))]
+    .sort((a, b) => {
+      const ai = MATERIAL_CATEGORY_SUGGESTIONS.indexOf(a);
+      const bi = MATERIAL_CATEGORY_SUGGESTIONS.indexOf(b);
+      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || a.localeCompare(b, 'ja');
+    });
+  const categorySelect = $('materialDirectoryCategory');
+  const activeCategory = categorySelect?.value || '';
+  if (categorySelect) {
+    categorySelect.innerHTML = '<option value="">すべての種類</option>' +
+      categories.map(category => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
+    categorySelect.value = categories.includes(activeCategory) ? activeCategory : '';
+  }
+
+  const query = safeTrim($('materialDirectorySearch')?.value).toLowerCase();
+  const words = query.split(/\s+/).filter(Boolean);
+  const category = categorySelect?.value || '';
+  const favoritesOnly = $('materialDirectoryFavoritesOnly')?.checked || false;
+  const order = $('materialDirectorySort')?.value || 'favorites';
+  const sorted = S.materials.map(normalizeMaterial).filter(item => {
+    if (category && materialCategory(item) !== category) return false;
+    if (favoritesOnly && !item.favorite) return false;
+    const searchTarget = [
+      item.name, item.category, materialCategory(item), item.supplier,
+      item.height, item.width, item.heightUnit, item.widthUnit,
+      materialThickness(item) === null ? '' : `${materialThickness(item)}t ${materialThickness(item)}mm`,
+      item.color, materialColorLabel(item), item.price, item.effectiveDate
+    ].join(' ').toLowerCase();
+    return words.every(word => searchTarget.includes(word));
+  });
+
+  const compareNames = (a,b) => String(a.name || '').localeCompare(String(b.name || ''), 'ja', {numeric:true});
+  sorted.sort((a,b) => {
+    if (order === 'priceAsc') return Number(a.price) - Number(b.price) || compareNames(a,b);
+    if (order === 'priceDesc') return Number(b.price) - Number(a.price) || compareNames(a,b);
+    if (order === 'updated') return materialLastUpdated(b) - materialLastUpdated(a) || compareNames(a,b);
+    if (order === 'favorites') return Number(b.favorite) - Number(a.favorite) || compareNames(a,b);
+    return compareNames(a,b);
+  });
+
+  const total = sorted.length;
+  const pages = Math.max(1, Math.ceil(total / MATERIAL_DIRECTORY_PAGE_SIZE));
+  materialDirectoryPage = Math.min(Math.max(0, materialDirectoryPage), pages - 1);
+  const start = materialDirectoryPage * MATERIAL_DIRECTORY_PAGE_SIZE;
+  const visible = sorted.slice(start, start + MATERIAL_DIRECTORY_PAGE_SIZE);
+  if ($('materialDirectoryCount')) $('materialDirectoryCount').textContent = `${total}件`;
+  if ($('materialDirectoryRange')) $('materialDirectoryRange').textContent =
+    total ? `（全${S.materials.length}件中、${start + 1}〜${start + visible.length}件を表示）` : `（全${S.materials.length}件）`;
+  if ($('materialDirectoryPageInfo')) $('materialDirectoryPageInfo').textContent = total ? `${materialDirectoryPage + 1} / ${pages}ページ` : '';
+  if ($('materialDirectoryPrev')) $('materialDirectoryPrev').disabled = materialDirectoryPage === 0;
+  if ($('materialDirectoryNext')) $('materialDirectoryNext').disabled = materialDirectoryPage >= pages - 1;
+
+  list.innerHTML = total ? visible.map(item => {
+    const category = materialCategory(item);
+    const color = materialColorLabel(item);
+    const knownThickness = materialThickness(item);
+    const thickness = knownThickness === null ? '厚み未指定' : `厚み ${esc(knownThickness)}mm`;
+    const dims = `${esc(item.height)}${esc(item.heightUnit)} × ${esc(item.width)}${esc(item.widthUnit)}`;
+    return `<article class="material-directory-row">
+      <div class="material-directory-primary">
+        <button type="button" class="material-favorite-toggle ${item.favorite ? 'is-favorite' : ''}" data-material-favorite="${esc(item.id)}" aria-label="${item.favorite ? 'お気に入りを解除' : 'お気に入りに追加'}：${esc(item.name)}" title="${item.favorite ? 'お気に入りを解除' : 'お気に入りに追加'}" aria-pressed="${item.favorite === true}">★</button>
+        ${materialColorSwatchHtml(item)}
+        <div class="material-directory-name">
+          <strong>${esc(item.name)}</strong>
+          <div class="material-directory-tags"><span class="material-category-tag">${esc(category)}</span><span>${thickness}</span>${color ? `<span>色：${esc(color)}</span>` : '<span>色未指定</span>'}</div>
+        </div>
+      </div>
+      <div class="material-directory-cell"><span class="material-mobile-label">寸法</span><span>${dims}</span></div>
+      <div class="material-directory-cell material-directory-price"><span class="material-mobile-label">価格・改定日</span><strong>${yen(Number(item.price),0)}</strong><small>${esc(item.effectiveDate || '—')} 改定</small></div>
+      <div class="material-directory-cell"><span class="material-mobile-label">仕入先</span><span>${esc(item.supplier || '—')}</span></div>
+      <div class="material-directory-actions">
+        <button type="button" class="secondary" data-material-use="${esc(item.id)}">計算に使う</button>
+        <button type="button" class="secondary" data-material-history="${esc(item.id)}">価格履歴 ${item.priceHistory.length}件</button>
+        <details class="material-row-menu"><summary aria-label="編集・削除などの操作">···</summary>
+          <div class="material-row-menu-content">
             <button type="button" data-material-edit="${esc(item.id)}">編集</button>
             <button type="button" class="danger" data-material-delete="${esc(item.id)}">削除</button>
           </div>
-        </article>`;
-      }).join('')
-    : '<div class="notice">材料はまだ登録されていません。</div>';
+        </details>
+      </div>
+    </article>`;
+  }).join('') : '<div class="material-directory-empty">該当する材料がありません。検索条件を変更するか、「材料を登録」から追加してください。</div>';
 }
 
 function applyMaterial(id) {
@@ -4585,6 +4810,12 @@ function bindCalculatorEvents() {
     const effectiveDate = $('materialMasterEffectiveDate').value;
     const supplier = safeTrim($('materialMasterSupplier').value);
     const reason = safeTrim($('materialMasterChangeReason').value);
+    const thicknessRaw = safeTrim($('materialMasterThickness').value);
+    const thickness = thicknessRaw ? Number(thicknessRaw) : null;
+    const color = safeTrim($('materialMasterColor').value);
+    const colorHex = color ? $('materialMasterColorPicker').value : '';
+
+    if (thicknessRaw && !(thickness > 0)) return toast('厚みは0より大きい数値を入力してください。');
 
     if (!safeTrim($('materialMasterName').value) ||
         !(Number($('materialMasterHeight').value) > 0) ||
@@ -4612,6 +4843,12 @@ function bindCalculatorEvents() {
       heightUnit: $('materialMasterHeightUnit').value,
       width: Number($('materialMasterWidth').value),
       widthUnit: $('materialMasterWidthUnit').value,
+      thickness,
+      color,
+      colorHex,
+      category: safeTrim($('materialMasterCategory').value),
+      favorite: previous?.favorite === true,
+      updatedAt: new Date().toISOString(),
       price, effectiveDate, supplier, changeReason: reason, priceHistory: history
     });
 
@@ -4620,10 +4857,8 @@ function bindCalculatorEvents() {
 
     try {
       await saveMaterials();
-      event.target.reset();
-      $('materialMasterId').value = '';
-      $('materialMasterEffectiveDate').value = todayIsoDate();
-      $('cancelMaterialEdit').hidden = true;
+      $('materialEditorDialog')?.close();
+      resetMaterialEditor();
       toast(index >= 0
         ? '材料と価格履歴を全PCへ更新しました'
         : '材料を全PCへ登録しました');
@@ -4634,12 +4869,18 @@ function bindCalculatorEvents() {
       toast(`材料マスタの共有保存に失敗しました：${error.message}`);
     }
   };
-  $('cancelMaterialEdit').onclick = () => {
-    $('materialMasterForm').reset();
-    $('materialMasterId').value = '';
-    $('materialMasterEffectiveDate').value = todayIsoDate();
-    $('cancelMaterialEdit').hidden = true;
-  };
+  $('cancelMaterialEdit').onclick = () => $('materialEditorDialog')?.close();
+  $('materialEditorDialog')?.addEventListener('close', resetMaterialEditor);
+  $('materialMasterColor').addEventListener('input', () => updateMaterialColorPreview());
+  $('materialMasterColorPicker').addEventListener('input', () => updateMaterialColorPreview({ fromPicker: true }));
+  for (const id of ['materialDirectorySearch','materialDirectoryCategory','materialDirectorySort','materialDirectoryFavoritesOnly']) {
+    const field = $(id);
+    if (!field) continue;
+    field.addEventListener(id === 'materialDirectorySearch' ? 'input' : 'change', () => {
+      materialDirectoryPage = 0;
+      renderMaterialMaster();
+    });
+  }
   if (!$('materialPriceDate').value) $('materialPriceDate').value = todayIsoDate();
   if (!$('materialMasterEffectiveDate').value) $('materialMasterEffectiveDate').value = todayIsoDate();
 }

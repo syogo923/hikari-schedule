@@ -11,11 +11,11 @@
   >
   <meta name="theme-color" content="#0d1b3d">
 
-  <title>光ポータル Ver4.0.7 Network Edition</title>
+  <title>光ポータル Ver4.0.8 Network Edition</title>
 
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="/style.css?v=4.0.7-history-ui">
+  <link rel="stylesheet" href="/style.css?v=4.0.8-material-directory">
 </head>
 
 <body>
@@ -136,7 +136,7 @@
 
       <div>
         <h1>光ポータル</h1>
-        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.7</span></p>
+        <p>仕事の見える化・納期共有 <span class="portal-version-inline" data-portal-version>Ver4.0.8</span></p>
       </div>
     </div>
 
@@ -603,26 +603,46 @@
       </section>
 
       <section id="calcMaterialsPanel" class="calculator-panel">
-        <div class="calculator-layout">
-          <form id="materialMasterForm" class="calculator-card">
-            <input id="materialMasterId" type="hidden">
-            <div class="card-title"><div><span class="step-badge">03</span><h3>材料マスタ登録</h3></div></div>
-            <label>材料名<input id="materialMasterName" required placeholder="例：アクリル透明 5t"></label>
-            <div class="dimension-grid">
-              <label>材料 縦<div class="unit-input"><input id="materialMasterHeight" type="number" min="0" step="any" required><select id="materialMasterHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
-              <label>材料 横<div class="unit-input"><input id="materialMasterWidth" type="number" min="0" step="any" required><select id="materialMasterWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+        <section class="calculator-card material-directory" aria-labelledby="materialDirectoryTitle">
+          <div class="material-directory-heading">
+            <div>
+              <span class="eyebrow">MATERIAL LIBRARY</span>
+              <h3 id="materialDirectoryTitle">登録済み材料</h3>
+              <p class="muted">材料を探して、価格履歴の確認や見積計算に利用できます。登録データは全PCで共有されます。</p>
             </div>
-            <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" required></label>
-            <div class="dimension-grid">
-              <label>価格改定日<input id="materialMasterEffectiveDate" type="date" required></label>
-              <label>仕入先<input id="materialMasterSupplier" placeholder="例：○○商事"></label>
-            </div>
-            <label>価格改定理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー値上げ、仕入先変更、特価終了"></textarea></label>
-            <div class="form-actions"><button type="button" id="cancelMaterialEdit" class="secondary" hidden>編集をやめる</button><button type="submit" class="primary">材料を保存</button></div>
-          </form>
-          <section class="calculator-card master-list-card"><div class="card-title"><div><h3>登録済み材料</h3><p class="muted">全PCで共有されます。</p></div></div><p class="material-share-note">材料名・寸法・価格改定日・仕入先・改定理由・価格履歴は全PCで共有されます。</p>
-          <div id="materialMasterList" class="material-master-list"></div></section>
-        </div>
+            <button type="button" id="openMaterialEditor" class="primary material-add-button"><span aria-hidden="true">＋</span> 材料を登録</button>
+          </div>
+          <div class="material-directory-toolbar">
+            <label class="material-directory-search">材料を検索
+              <input type="search" id="materialDirectorySearch" placeholder="材料名・厚み・色・寸法・仕入先" autocomplete="off">
+            </label>
+            <label>種類
+              <select id="materialDirectoryCategory"><option value="">すべての種類</option></select>
+            </label>
+            <label>並べ替え
+              <select id="materialDirectorySort">
+                <option value="favorites">お気に入り優先</option>
+                <option value="name">材料名順</option>
+                <option value="updated">最近更新した順</option>
+                <option value="priceAsc">価格が安い順</option>
+                <option value="priceDesc">価格が高い順</option>
+              </select>
+            </label>
+            <label class="material-favorites-filter"><input id="materialDirectoryFavoritesOnly" type="checkbox"> ★ お気に入りのみ</label>
+          </div>
+          <div class="material-directory-info">
+            <strong id="materialDirectoryCount">0件</strong>
+            <span id="materialDirectoryRange"></span>
+          </div>
+          <div class="material-directory-columns" aria-hidden="true">
+            <span>材料名・厚み・色</span><span>寸法</span><span>価格・改定日</span><span>仕入先</span><span>操作</span>
+          </div>
+          <div id="materialMasterList" class="material-master-list material-directory-list"></div>
+          <div class="material-directory-pagination">
+            <span id="materialDirectoryPageInfo"></span>
+            <div><button type="button" id="materialDirectoryPrev" class="secondary">前へ</button><button type="button" id="materialDirectoryNext" class="secondary">次へ</button></div>
+          </div>
+        </section>
       </section>
     </section>
 
@@ -672,7 +692,7 @@
       <div class="system-admin-shell">
         <div class="system-admin-head">
           <div><span class="eyebrow">SYSTEM MANAGEMENT</span><h2>システム管理</h2><p>光ポータルの共有データとリリース情報を管理します。</p></div>
-          <span class="system-version" data-portal-version>Ver4.0.7</span>
+          <span class="system-version" data-portal-version>Ver4.0.8</span>
         </div>
         <div class="backup-status-card">
           <div><span class="backup-status-label">最終バックアップ</span><strong id="backupLastAt">このPCではまだありません</strong><small id="backupLastName">バックアップはこのPCへ保存されます</small></div>
@@ -687,6 +707,7 @@
         </div>
         <div id="releaseHistoryPanel" class="release-history-panel" hidden>
           <div class="release-history-head"><div><span class="eyebrow">RELEASE NOTES</span><h3>リリース履歴</h3></div></div>
+          <div class="release-entry"><div><strong>Ver4.0.8</strong><span>材料マスタの一覧・登録UI改善</span></div><p>材料一覧を検索・種類別絞り込み・並べ替え・お気に入り・ページ分割に対応。登録・編集をダイアログ化し、厚み・色名・色見本を追加。価格履歴と全PC共有を継続。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.7</strong><span>更新履歴UI・バージョン管理改善</span></div><p>更新履歴カードを全面整理し、変更項目を読みやすく表示。[object Object]表示を解消し、PORTAL_VERSIONを基準にタイトル・ロゴ下・システム管理のバージョン表示を同期。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.6</strong><span>更新履歴・監査ログ改善</span></div><p>更新履歴を最大500件取得し、操作者・期間・変更内容での絞り込みを改善。変更項目を「変更前 → 変更後」で確認できる詳細表示と、フィルター後に別履歴が開く問題を修正。</p></div>
           <div class="release-entry"><div><strong>Ver4.0.5</strong><span>カレンダー操作性改善</span></div><p>社内予定の直接削除、土日祝の色分け、月間カレンダーの「ほか○件」からその日の全予定を確認できる機能を追加。</p></div>
@@ -1238,6 +1259,58 @@
     </form>
   </dialog>
 
+  <!-- 材料マスタ登録・編集：一覧とは別のダイアログ -->
+  <dialog id="materialEditorDialog" class="material-editor-dialog" aria-labelledby="materialEditorTitle">
+    <form id="materialMasterForm" class="calculator-card material-editor-form">
+      <input id="materialMasterId" type="hidden">
+      <header class="material-editor-header">
+        <div><span class="eyebrow">MATERIAL MASTER</span><h2 id="materialEditorTitle">材料を登録</h2></div>
+        <button type="button" data-close aria-label="閉じる">×</button>
+      </header>
+      <label>材料名<input id="materialMasterName" required placeholder="例：3t 塩ビ（白）" maxlength="160"></label>
+      <label>材料の種類
+        <select id="materialMasterCategory">
+          <option value="">材料名から自動判定</option>
+          <option value="アクリル">アクリル</option>
+          <option value="塩ビ">塩ビ</option>
+          <option value="真鍮">真鍮</option>
+          <option value="アルミ">アルミ</option>
+          <option value="ステンレス">ステンレス</option>
+          <option value="ターポリン・シート">ターポリン・シート</option>
+          <option value="その他の樹脂">その他の樹脂</option>
+          <option value="その他">その他</option>
+        </select>
+      </label>
+      <div class="dimension-grid">
+        <label>材料 縦<div class="unit-input"><input id="materialMasterHeight" type="number" min="0" step="any" inputmode="decimal" required><select id="materialMasterHeightUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+        <label>材料 横<div class="unit-input"><input id="materialMasterWidth" type="number" min="0" step="any" inputmode="decimal" required><select id="materialMasterWidthUnit"><option>mm</option><option>cm</option><option>m</option></select></div></label>
+      </div>
+      <div class="dimension-grid">
+        <label>厚み（mm / t）<input id="materialMasterThickness" type="number" min="0" step="any" inputmode="decimal" placeholder="例：3 または 5（未指定可）"></label>
+        <label>色名<input id="materialMasterColor" type="text" maxlength="80" placeholder="例：白、黒、透明、乳半"></label>
+      </div>
+      <div class="material-editor-color-line">
+        <label>見本色を選択 <input id="materialMasterColorPicker" type="color" value="#94a3b8" aria-label="色見本を選択"></label>
+        <div class="material-editor-color-preview" aria-live="polite">
+          <span id="materialMasterColorSwatch" class="material-color-swatch" aria-hidden="true"></span>
+          <span id="materialMasterColorPreviewText">色を指定すると見本を表示します</span>
+        </div>
+      </div>
+      <p class="material-editor-color-help">色名を入力すると代表色を自動表示します。正確な色が必要なら色見本をクリックして変更できます。「透明」はチェック模様で表示します。</p>
+      <label>価格（円／枚）<input id="materialMasterPrice" type="number" min="0" step="any" inputmode="decimal" required></label>
+      <div class="dimension-grid">
+        <label>価格改定日<input id="materialMasterEffectiveDate" type="date" required></label>
+        <label>仕入先<input id="materialMasterSupplier" maxlength="160" placeholder="例：○○商事"></label>
+      </div>
+      <label>価格改定理由・備考<textarea id="materialMasterChangeReason" rows="3" placeholder="例：メーカー値上げ、仕入先変更、特価終了"></textarea></label>
+      <p class="material-editor-save-note">材料名・寸法・厚み・色・お気に入り・価格履歴は全PCで共有されます。</p>
+      <footer class="form-actions material-editor-footer">
+        <button type="button" id="cancelMaterialEdit" class="secondary">キャンセル</button>
+        <button type="submit" id="saveMaterialMasterButton" class="primary">材料を保存</button>
+      </footer>
+    </form>
+  </dialog>
+
   <!-- 材料価格履歴 -->
   <dialog id="materialHistoryDialog" class="material-history-dialog">
     <div class="material-history-panel">
@@ -1386,7 +1459,7 @@
   ></div>
 
   <script
-    src="/app.js?v=4.0.7-history-ui"
+    src="/app.js?v=4.0.8-material-directory"
     defer
   ></script>
 
